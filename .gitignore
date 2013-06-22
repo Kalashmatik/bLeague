@@ -50,6 +50,10 @@ build/
 [Bb]in/
 [Oo]bj/
 
+*.exe
+plugins/source/
+scriptfiles
+
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
