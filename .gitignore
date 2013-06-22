@@ -51,6 +51,9 @@ build/
 [Oo]bj/
 
 *.exe
+*.amx
+*.xml
+*.html
 plugins/source/
 scriptfiles
 

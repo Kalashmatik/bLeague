@@ -1,0 +1,4 @@
+[22:42:28] [ERROR] ExecuteT[OnArenasLoad()] - (error #1146) Table 'server.arenas' doesn't exist
+[22:42:28] [ERROR] ExecuteT[OnBasesLoad()] - (error #1146) Table 'server.bases' doesn't exist
+[22:42:28] [ERROR] ExecuteT[OnCTFsLoad()] - (error #1146) Table 'server.ctf' doesn't exist
+[22:42:28] [ERROR] ExecuteT[OnDMsLoad()] - (error #1146) Table 'server.dm' doesn't exist
