@@ -1,6 +1,6 @@
 /*
 
-|*---------  bLeague T/CW v1.5  ---------*|
+|*---------  bLeague T/CW v2.0  ---------*|
 |*----------   Copyright (c)   ----------*|
 |*----------  BJIADOKC, 2012   ----------*|
 
@@ -22,19 +22,20 @@
 
 
 
-#pragma amxram      					16777216
-#pragma compress    					1
-//#pragma dynamic     					65535
+//#pragma amxram      					16777216
+//#pragma compress    					1
+#pragma dynamic     					32768
 #pragma tabsize     					4
-#pragma pack        					0
+//#pragma pack        					0
 //#pragma semicolon   					0
-#pragma ctrlchar    					'\\'
+//#pragma ctrlchar    					'\\'
 
 
 
 
 
 
+#include                                <a_http>
 #include 								<a_samp>
 
 #if defined MAX_PLAYERS
@@ -54,16 +55,16 @@
 #include                    			<audio>
 #include                    			<cmd>
 #include                    			<dns>
-#include 								<gvar> // remove
+#include 								<gvar>
 #include                    			<mail>
 #include                    			<map>
 #include                    			<multimap>
 #include                    			<mysql>
+#include                                <params>
 #include 								<regex>
 #include                    			<sha512>
 #include                    			<socket>
 #include                    			<streamer>
-#include 								<sscanf2>
 #include 								<timerfix>
 #include                    			<vector>
 
@@ -73,7 +74,7 @@
 
 #define Never 							999999
 
-#define ModeVersion 					"v1.5 R2"
+#define ModeVersion 					"v2.0 RC1"
 #define samp_current_version 			"0.3x-R1-2"
 
 #define Max_Spawns 						10
@@ -144,7 +145,7 @@
 
 
 #define foreach_p(%0) \
-	for(new %0, %0_m = cvector_size(playersVector), %0_i; %0_i != %0_m; %0 = cvector_get(playersVector, %0_i++))
+	for(new %0, %0_m = cvector_size(playersVector), %0_i; %0_i < %0_m; %0 &= 0, %0 += cvector_get(playersVector, %0_i++))
 	
 #define isnull(%0) \
 	!strlen(%0)
@@ -185,6 +186,18 @@
 
 #define Pressed(%0) \
 	(((newkeys & %0) == %0) && ((oldkeys & %0) != %0))
+	
+#define SendClientMessageF(%0,%1,%2,%3) do{new scm[144];format(scm,sizeof scm,(%2),%3);SendClientMessage((%0),(%1),scm);}while(FALSE)
+	
+#define SendClientMessageToAllF(%0,%1,%2) do{new scmta[144];format(scmta,sizeof scmta,(%1),%2);SendClientMessageToAll((%0),scmta);}while(FALSE)
+	
+#define GameTextForPlayerF(%0,%1,%2,%3,%4) do{new gtfp[256];format(gtfp,sizeof gtfp,(%1),%4);GameTextForPlayer((%0),gtfp,(%2),(%3));}while(FALSE)
+	
+#define TextDrawSetStringF(%0,%1,%2) do{new tdss[1024];format(tdss,sizeof tdss,(%1),%2);TextDrawSetString((%0),tdss);}while(FALSE)
+
+//#define PlayerTextDrawSetStringF(%0,%1,%2,%3) do{new ptdss[1024];format(ptdss,sizeof ptdss,(%2),%3);PlayerTextDrawSetString((%0),(%1),ptdss);}while(FALSE)
+
+#define SendRconCommandF(%0,%1) do{new srcmd[256];format(srcmd,sizeof srcmd,(%0),%1);SendRconCommand(srcmd);}while(FALSE)
 
 
 
@@ -410,7 +423,7 @@ new DM[10][D_INFO];
 enum P_INFO
 {
 	IP[16],
-	Name[25],
+	Name[24],
 	bool:pConnect,
 	PlayerText:Dot,
 	PlayerText:IntroLetters,
@@ -457,6 +470,10 @@ new Server[S_INFO];
 
 
 
+new FALSE = false;
+
+
+
 new vote_string[1024 char];
 new Text:TeamTextDraw[Max_Teams][5];
 new Text:VoteKickText;
@@ -466,11 +483,13 @@ new Text3D:lobby_text;
 
 
 new mysqlHandle;
-new socketHandle;
+new querySocketHandle;
+new addonSocketHandle;
 
 
 
-new advertRegex;
+new textAdvertRegex;
+new ipAdvertRegex;
 new mailRegex;
 new nameRegex;
 new passwordRegex;
@@ -478,6 +497,7 @@ new passwordRegex;
 
 
 new playersVector;
+new vehiclesVector;
 
 
 
@@ -650,178 +670,6 @@ new const Float:ShotLocation_5[2][3] =
 
 
 
-public FormatHook(arg_0[], arg_1, Float:arg_2);
-public FormatHook(arg_0[], arg_1, Float:arg_2)
-{
-	format(arg_0, 1, "%s%d%f", arg_0, arg_1, arg_2);
-}
-
-
-
-scmf(playerid, color, fstring[], {Float, _}:...)
-{
-	new n = ((numargs() - 3) << 2);
-	
-   	if(n)
-   	{
-		new message[256];
-		new arg_start;
-		new arg_end;
-		
-      	#emit CONST.alt                fstring
-      	#emit LCTRL                    5
-      	#emit ADD
-      	#emit STOR.S.pri               arg_start
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit STOR.S.pri               arg_end
-      	
-      	do
-	  	{
-   			#emit LOAD.I
-         	#emit PUSH.pri
-         	
-         	arg_end -= 4;
-         	
-         	#emit LOAD.S.pri           arg_end
-      	}
-      	while(arg_end > arg_start);
-      	
-      	#emit PUSH.S                   fstring
-      	#emit PUSH.C                   256
-      	#emit PUSH.ADR                 message
-      	
-      	n += 12;
-      	
-      	#emit PUSH.S                   n
-      	#emit SYSREQ.C                 format
-      	
-      	n += 4;
-      	
-      	#emit LCTRL                    4
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit SCTRL                    4
-      	
-      	return SendClientMessage(playerid, color, message);
-   	}
-   	else return SendClientMessage(playerid, color, fstring);
-}
-
-#define SendClientMessage scmf
-
-
-
-scmfta(color, fstring[], {Float, _}:...)
-{
-	new n = ((numargs() - 2) << 2);
-	
-   	if(n)
-   	{
-      	new message[256];
-		new arg_start;
-		new arg_end;
-	  	
-      	#emit CONST.alt                fstring
-      	#emit LCTRL                    5
-      	#emit ADD
-      	#emit STOR.S.pri               arg_start
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit STOR.S.pri               arg_end
-      	
-      	do
-	  	{
-   			#emit LOAD.I
-         	#emit PUSH.pri
-         	
-         	arg_end -= 4;
-         	
-         	#emit LOAD.S.pri           arg_end
-      	}
-      	while(arg_end > arg_start);
-      	
-      	#emit PUSH.S                   fstring
-      	#emit PUSH.C                   256
-      	#emit PUSH.ADR                 message
-      	
-      	n += 12;
-      	
-      	#emit PUSH.S                   n
-      	#emit SYSREQ.C                 format
-      	
-      	n += 4;
-      	
-      	#emit LCTRL                    4
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit SCTRL                    4
-      	
-      	return SendClientMessageToAll(color, message);
-   	}
-   	else return SendClientMessageToAll(color, fstring);
-}
-
-#define SendClientMessageToAll scmfta
-
-
-
-spd(playerid, dialogid, style, caption[], info[], button1[], button2[], {Float, _}:...)
-{
-	new n = ((numargs() - 7) << 2);
-
-   	if(n)
-   	{
-		new info_[2048];
-		new arg_start;
-		new arg_end;
-
-      	#emit CONST.alt                info
-      	#emit LCTRL                    5
-      	#emit ADD
-      	#emit STOR.S.pri               arg_start
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit STOR.S.pri               arg_end
-
-      	do
-	  	{
-   			#emit LOAD.I
-         	#emit PUSH.pri
-
-         	arg_end -= 4;
-
-         	#emit LOAD.S.pri           arg_end
-      	}
-      	while(arg_end > arg_start);
-
-      	#emit PUSH.S                   info
-      	#emit PUSH.C                   2048
-      	#emit PUSH.ADR                 info_
-
-      	n += 12;
-
-      	#emit PUSH.S                   n
-      	#emit SYSREQ.C                 format
-
-      	n += 4;
-
-      	#emit LCTRL                    4
-      	#emit LOAD.S.alt               n
-      	#emit ADD
-      	#emit SCTRL                    4
-
-      	return ShowPlayerDialog(playerid, dialogid, style, caption, info_, button1, button2);
-   	}
-   	else return ShowPlayerDialog(playerid, dialogid, style, caption, info, button1, button2);
-}
-
-#define ShowPlayerDialog spd
-
-
-
-
-
 main()
 {
 	print("\n.______________________________.");
@@ -891,18 +739,17 @@ mysql_ban(playerid, adminid, bantime, reason[], adminname[] = "")
 
 	gpci(playerid, serial, sizeof serial);
 	strcat(serial, ip);
-	SHA512(serial, serial, sizeof serial);
 
 	if(GetPVarInt(adminid, "Connected"))
 	{
-		mysql_format(mysqlHandle, query, sizeof query, "INSERT INTO `banlist` VALUES ('%s', '%s', '%s', '%e', %i, %i)", serial, Player[playerid][Name], Player[adminid][Name], reason, gettime(), bantime);
+		mysql_format(mysqlHandle, query, sizeof query, "INSERT INTO `banlist` VALUES (SHA2('%s', 512), '%s', '%s', '%e', %i, %i)", serial, Player[playerid][Name], Player[adminid][Name], reason, gettime(), bantime);
 	}
 	else
 	{
-		mysql_format(mysqlHandle, query, sizeof query, "INSERT INTO `banlist` VALUES ('%s', '%s', '%s', '%s', %i, %i)", serial, Player[playerid][Name], adminname, reason, gettime(), bantime);
+		mysql_format(mysqlHandle, query, sizeof query, "INSERT INTO `banlist` VALUES (SHA2('%s', 512), '%s', '%s', '%s', %i, %i)", serial, Player[playerid][Name], adminname, reason, gettime(), bantime);
 	}
 	
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerBanned","d",playerid);
+	mysql_function_query(mysqlHandle, query, false, "OnPlayerBanned", "i", playerid);
 
 	return 1;
 }
@@ -1913,7 +1760,7 @@ Convert(seconds, dest[], size = sizeof dest)
 				}
                 default:
 				{
-					format(dest, size, "%d:%02i:%02i", data[1], data[2], data[3]);
+					format(dest, size, "%i:%02i:%02i", data[1], data[2], data[3]);
 				}
 			}
 		}
@@ -2189,13 +2036,15 @@ GivePlayerWeapons(playerid)
 		 	continue;
 		}
 		
- 		SendClientMessage(i, GetPlayerColor(playerid), "[Команда] {FF0000}%s: {FFFFFF}Мой пак - {FFFF00}%s", Player[playerid][Name], string);
+ 		SendClientMessageF(i, GetPlayerColor(playerid), "[Команда] {FF0000}%s: {FFFFFF}Мой пак - {FFFF00}%s", Player[playerid][Name], string);
 	}
 	
 	strins(string, "Мой пак: ", 0);
 	SetPlayerChatBubble(playerid, string, GetPlayerColor(playerid), 20.0, 4000);
 	
-	return SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Для перевыбора пака в течении {FF0000}%d {AFAFAF}секунд после старта раунда вы можете ввести {FFFF00}/w", GetGVarInt("Weap_ChangeTime"));
+	SendClientMessageF(playerid, -1, "[Инфо]: {AFAFAF}Для перевыбора пака в течении {FF0000}%i {AFAFAF}секунд после старта раунда вы можете ввести {FFFF00}/w", GetGVarInt("Weap_ChangeTime"));
+	
+	return 1;
 }
 
 
@@ -2362,6 +2211,10 @@ ResetServerVars()
 	new string[2048];
 	
 	playersVector = cvector();
+	cvector_clear(playersVector);
+	
+	vehiclesVector = cvector();
+	cvector_clear(vehiclesVector);
 	
     SetGVarInt("LoadTick", GetTickCount());
 	SetGameModeText("bLeague T/CW " #ModeVersion);
@@ -2398,7 +2251,7 @@ ResetServerVars()
 	string[0] = 0;
 	strcat(string, "{FFFFFF}Начало разработки мода: {AFAFAF}27.07.2011\n{FFFFFF}Длительность разработки: {AFAFAF}4 месяца\n\n{FFFFFF}Комманда разработчиков:\n\nАвтор, скриптер, отладчик: {FF0000}BJIADOKC\n{FFFFFF}Бета-тестеры: {FF0000}Demetr1us {FFFFFF}| {FF0000}VIRuS {FFFFFF}| {FF0000}Vandersexxx");
 	strcat(string, "\n{FFFFFF}В моде используются:\n- RegEx (Автор: Fro)\n- Whirlpool (Автор: Y_Less)\n- zcmd (Автор: Zeex)\n- sscanf (Автор: Y_Less)\n- MySQL R7 (Автор: BlueG)\n- GVar (Автор: Incognito)\n\nВсе предложения и пожелания по моду можно отправлять:\n{00FF40}ICQ 3300626 {FFFFFF}или {0040FF}Skype: bjiadokc");
-	strcat(string, "\n\n{FF0000}b{AFAFAF}League " #ModeVersion " {FFFFFF}(c) BJIADOKC, 2012, Все права защищены грубой физической силой\nДанный мод и все его части являются собственностью Go Rush Project. Мод не в паблике, и не для продажи");
+	strcat(string, "\n\n{FF0000}b{AFAFAF}League " #ModeVersion " {FFFFFF}(c) BJIADOKC, 2012, Все права защищены грубой физической силой\nДанный мод и все его части являются собственностью Владокса. Мод не в паблике, и не для продажи");
 	SetGVarString("Info", string);
 	
 	SetGVarString("Mayak", "Атакуют... Требуется поддержка!");
@@ -2421,8 +2274,8 @@ ResetServerVars()
 	SetGVarInt("Skin_Def", 144);
 	SetGVarInt("Skin_Ref", 101);
 	SetGVarString("Team_Name", "None", Team_None);
-	SetGVarString("Team_Name", "Guests", Team_Attack);
-	SetGVarString("Team_Name", "Go Rush", Team_Defend);
+	SetGVarString("Team_Name", "Attack", Team_Attack);
+	SetGVarString("Team_Name", "Defend", Team_Defend);
 	SetGVarString("Team_Name", "Judges", Team_Refferee);
 	SetGVarInt("Score", 0, Team_None);
 	SetGVarInt("Score", 0, Team_Attack);
@@ -2577,9 +2430,9 @@ FormatWeapons()
 {
 	new string[150];
 	
-	format(string, sizeof string, "{FFFFFF}Desert Eagle (%d)\nSilenced Pistol (%d)\nShotgun (%d)\nMP5 (%d)\nAK-47 (%d)\nM4 (%d)\nCountry Rifle (%d)\nSniper Rifle (%d)", GetGVarInt("Ammo_Deagle"), GetGVarInt("Ammo_Silenced"), GetGVarInt("Ammo_Shotgun"), GetGVarInt("Ammo_MP5"), GetGVarInt("Ammo_AK"), GetGVarInt("Ammo_M4"), GetGVarInt("Ammo_Rifle"), GetGVarInt("Ammo_Sniper"));
+	format(string, sizeof string, "{FFFFFF}Desert Eagle (%i)\nSilenced Pistol (%i)\nShotgun (%i)\nMP5 (%i)\nAK-47 (%i)\nM4 (%i)\nCountry Rifle (%i)\nSniper Rifle (%i)", GetGVarInt("Ammo_Deagle"), GetGVarInt("Ammo_Silenced"), GetGVarInt("Ammo_Shotgun"), GetGVarInt("Ammo_MP5"), GetGVarInt("Ammo_AK"), GetGVarInt("Ammo_M4"), GetGVarInt("Ammo_Rifle"), GetGVarInt("Ammo_Sniper"));
 	SetGVarString("Weapons", string);
-	format(string, sizeof string, "{FFFFFF}Knife\nBaseball Bat\nShovel\nNitestick\n__________\nGrenades (%d)\nTear Gas (%d)", GetGVarInt("Ammo_Grenades"), GetGVarInt("Ammo_SGrenades"));
+	format(string, sizeof string, "{FFFFFF}Knife\nBaseball Bat\nShovel\nNitestick\n__________\nGrenades (%i)\nTear Gas (%i)", GetGVarInt("Ammo_Grenades"), GetGVarInt("Ammo_SGrenades"));
 	SetGVarString("Weapons", string, 1);
 }
 
@@ -2869,13 +2722,11 @@ SetWin(team)
      		GiveGVarInt("Score", 1, Team_Attack);
      		GetGVarString("Team_Name", string, sizeof string, Team_Attack);
      		
-		    SendClientMessageToAll(-1, "[Инфо]: {00FF40}Атакеры (%s) выиграли раунд!", string);
+		    SendClientMessageToAllF(-1, "[Инфо]: {00FF40}Атакеры (%s) выиграли раунд!", string);
+		    SendRconCommandF("mapname Attack (%s) win!", string);
 		    
-		    format(string, sizeof string, "Congratulations, %s!", string);
-	        TextDrawSetString(TeamTextDraw[Team_Attack][4], string);
-	        
-	        format(string, sizeof string, "HP: %.1f     Alive: %d", AttHp(), AttsAlive());
-	        TextDrawSetString(TeamTextDraw[Team_Attack][1], string);
+	        TextDrawSetStringF(TeamTextDraw[Team_Attack][4], "Congratulations, %s!", string);
+	        TextDrawSetStringF(TeamTextDraw[Team_Attack][1], "HP: %.1f     Alive: %i", AttHp(), AttsAlive());
 	        
 			foreach_p(i)
 			{
@@ -2907,10 +2758,6 @@ SetWin(team)
 				TogglePlayerControllable(i, true);
 			}
 			
-			GetGVarString("Team_Name", string, sizeof string, Team_Attack);
-	        format(string, sizeof string, "mapname Attack (%s) win!", string);
-			SendRconCommand(string);
-			
 			StopRound();
 		}
 		
@@ -2919,13 +2766,11 @@ SetWin(team)
 		    GiveGVarInt("Score", 1, Team_Defend);
 		    GetGVarString("Team_Name", string, sizeof string, Team_Defend);
 		    
-		    SendClientMessageToAll(-1, "[Инфо]: {00FF40}Дефендеры (%s) выиграли раунд!", string);
+		    SendClientMessageToAllF(-1, "[Инфо]: {00FF40}Дефендеры (%s) выиграли раунд!", string);
+		    SendRconCommandF("mapname Defend (%s) win!", string);
 		    
-			format(string, sizeof string, "Congratulations, %s!", string);
-	        TextDrawSetString(TeamTextDraw[Team_Defend][4], string);
-	        
-	        format(string, sizeof string, "HP: %.1f     Alive: %d", DefHp(), DefsAlive());
-	        TextDrawSetString(TeamTextDraw[Team_Defend][1], string);
+	        TextDrawSetStringF(TeamTextDraw[Team_Defend][4], "Congratulations, %s!", string);
+	        TextDrawSetStringF(TeamTextDraw[Team_Defend][1], "HP: %.1f     Alive: %i", DefHp(), DefsAlive());
 	        
 			foreach_p(i)
 			{
@@ -2957,22 +2802,16 @@ SetWin(team)
 				TogglePlayerControllable(i, true);
 			}
 			
-			GetGVarString("Team_Name", string, sizeof string, Team_Defend);
-		    format(string, sizeof string, "mapname Defend (%s) win!", string);
-			SendRconCommand(string);
-			
 			StopRound();
 		}
 		
 		default:
 		{
 		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Ничья!");
+		    SendRconCommand("mapname Draw!");
 		    
-		    format(string, sizeof string, "Attack:~n~HP: %.1f     Alive: %d", AttHp(), AttsAlive());
-	        TextDrawSetString(TeamTextDraw[Team_None][1], string);
-	        
-	        format(string, sizeof string, "Defend:~n~HP: %.1f     Alive: %d", DefHp(), DefsAlive());
-	        TextDrawSetString(TeamTextDraw[Team_None][4], string);
+	        TextDrawSetStringF(TeamTextDraw[Team_None][1], "Attack:~n~HP: %.1f     Alive: %i", AttHp(), AttsAlive());
+	        TextDrawSetStringF(TeamTextDraw[Team_None][4], "Defend:~n~HP: %.1f     Alive: %i", DefHp(), DefsAlive());
 	        
 			foreach_p(i)
 			{
@@ -2991,7 +2830,6 @@ SetWin(team)
 				TogglePlayerControllable(i, true);
 			}
 			
-			SendRconCommand("mapname Draw!");
 			StopRound();
 		}
 	}
@@ -3587,6 +3425,8 @@ CreateTextDraws()
 	lobby_text = Create3DTextLabel(string_data,GetGVarInt("Main3D_Color"),GetGVarFloat("Lobby_Pos",0),GetGVarFloat("Lobby_Pos",1),floatadd(GetGVarFloat("Lobby_Pos",2),0.2),250.0,Lobby_VW,true);
 }
 
+
+
 DestroyTextDraws()
 {
 	TextDrawDestroy(Server[ArenaAndTime]);
@@ -3626,10 +3466,12 @@ DestroyTextDraws()
 	}
 }
 
+
+
 CreatePlayerTextDraws(playerid)
 {
-	Player[playerid][IntroLetters] = CreatePlayerTextDraw(playerid,421.000000,121.000000,"Go Rush Training~n~bLeague v1.5");
-	PlayerTextDrawAlignment(playerid,Player[playerid][IntroLetters],3);
+	Player[playerid][IntroLetters] = CreatePlayerTextDraw(playerid, 320.000000, 121.000000, "BJIADOKC's Training~n~bLeague v2.0"); // 421
+	PlayerTextDrawAlignment(playerid,Player[playerid][IntroLetters],2); // 3
 	PlayerTextDrawBackgroundColor(playerid,Player[playerid][IntroLetters],0xffffff33);
     PlayerTextDrawFont(playerid,Player[playerid][IntroLetters],2);
 	PlayerTextDrawLetterSize(playerid,Player[playerid][IntroLetters],0.799999,3.099999);
@@ -3637,9 +3479,9 @@ CreatePlayerTextDraws(playerid)
 	PlayerTextDrawSetOutline(playerid,Player[playerid][IntroLetters],1);
 	PlayerTextDrawSetProportional(playerid,Player[playerid][IntroLetters],1);
 	PlayerTextDrawSetShadow(playerid,Player[playerid][IntroLetters],1);
-	PlayerTextDrawSetSelectable(playerid,Player[playerid][IntroLetters],false);
+	PlayerTextDrawSetSelectable(playerid,Player[playerid][IntroLetters], false);
 	
-	Player[playerid][TeamText] = CreatePlayerTextDraw(playerid,299.000000,186.000000,".");
+	Player[playerid][TeamText] = CreatePlayerTextDraw(playerid,299.000000,186.000000,"."); 
 	PlayerTextDrawAlignment(playerid,Player[playerid][TeamText],2);
 	PlayerTextDrawBackgroundColor(playerid,Player[playerid][TeamText],0xffffff33);
 	PlayerTextDrawFont(playerid,Player[playerid][TeamText],2);
@@ -3650,7 +3492,7 @@ CreatePlayerTextDraws(playerid)
 	PlayerTextDrawSetShadow(playerid,Player[playerid][TeamText],1);
 	PlayerTextDrawSetSelectable(playerid,Player[playerid][TeamText],false);
 	
-	Player[playerid][Dot] = CreatePlayerTextDraw(playerid,31.000000,173.000000,".");
+	Player[playerid][Dot] = CreatePlayerTextDraw(playerid,50.000000,173.000000,".");// 31
 	PlayerTextDrawAlignment(playerid,Player[playerid][Dot],0);
 	PlayerTextDrawBackgroundColor(playerid,Player[playerid][Dot],0x000000ff);
 	PlayerTextDrawFont(playerid,Player[playerid][Dot],3);
@@ -3753,6 +3595,8 @@ CreatePlayerTextDraws(playerid)
 	Player[playerid][AtHead] = Create3DTextLabel(" ",0x00FF40FF,0.0,0.0,0.0,250.0,-1,false);
 }
 
+
+
 DestroyPlayerTextDraws(playerid)
 {
 	PlayerTextDrawDestroy(playerid,Player[playerid][IntroLetters]);
@@ -3770,6 +3614,8 @@ DestroyPlayerTextDraws(playerid)
 	
 	Delete3DTextLabel(Player[playerid][AtHead]);
 }
+
+
 
 Float:GetRatio(int_1, int_2)
 {
@@ -3800,6 +3646,8 @@ Float:GetRatio(int_1, int_2)
 	
 	return float_data;
 }
+
+
 
 SetTeam(playerid, Teamid)
 {
@@ -3853,6 +3701,8 @@ SetTeam(playerid, Teamid)
 	return 1;
 }
 
+
+
 AddToRound(playerid)
 {
     new
@@ -3863,8 +3713,8 @@ AddToRound(playerid)
  	SetPlayerHealth(playerid,200.0);
  	SetPlayerScore(playerid,200);
  	
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],"Protected");
-	PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], "Protected");
+	PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
 	
 	SetPlayerVirtualWorld(playerid,Round_VW);
 	PlayerPlaySound(playerid,1057,0.0,0.0,0.0);
@@ -3970,6 +3820,8 @@ AddToRound(playerid)
 	if(!GetPVarInt(playerid,"Weapon_1") || !GetPVarInt(playerid,"Weapon_2")) return ShowPlayerFirstWeapDialog(playerid);
 	return ShowPlayerChangeWeapDialog(playerid);
 }
+
+
 
 RemoveFromRound(playerid)
 {
@@ -4084,10 +3936,10 @@ StopSpectate(playerid)
 		return 1;
 	}
 	
-	new string[12];
-	
 	TogglePlayerSpectating(playerid, false);
 	PlayerTextDrawHide(playerid, Player[playerid][SpecText]);
+	
+	new string[16];
 	
 	format(string, sizeof string, "HP: %.0f", ReturnPlayerHealth(playerid));
 	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], string);
@@ -4114,26 +3966,30 @@ public OnPlayerBanCheck(playerid)
 	{
 	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вы забанены на этом сервере");
 		cache_get_field_content(0,"Name",string_data);
-		SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Ник в момент бана: {FF0000}%s",string_data);
+		SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Ник в момент бана: {FF0000}%s",string_data);
 		cache_get_field_content(0,"AdminName",string_data);
-	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Администратор, выдавший бан: {FF0000}%s",string_data);
+	    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Администратор, выдавший бан: {FF0000}%s",string_data);
 		cache_get_field_content(0,"Reason",string_data);
-		SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Причина бана: {FFFF00}%s",string_data);
+		SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Причина бана: {FFFF00}%s",string_data);
 		cache_get_field_content(0,"Date",string_data);
-	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Дата бана: {FFFF00}%s",string_data);
+	    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Дата бана: {FFFF00}%s",string_data);
 		return Kick(playerid);
 	}
 
 	return 1;
 }
 
+
+
 public OnPlayerBanned(playerid);
 public OnPlayerBanned(playerid)
 {
-    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %d, IP: %s]{AFAFAF}вышел из игры {FF0000}(Забанен)",Player[playerid][Name],playerid,Player[playerid][IP]);
+    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %i, IP: %s]{AFAFAF}вышел из игры {FF0000}(Забанен)", Player[playerid][Name], playerid, Player[playerid][IP]);
 
 	return Kick(playerid);
 }
+
+
 
 public OnPlayerUnBanRequied(adminid, pName[]);
 public OnPlayerUnBanRequied(adminid, pName[])
@@ -4144,200 +4000,276 @@ public OnPlayerUnBanRequied(adminid, pName[])
 	;
 
 	cache_get_data(rows,fields);
-	if(!rows) return SendClientMessage(adminid,-1,"[Ошибка]: {AFAFAF}Ника {FF0000}%s {AFAFAF}нет в банлисте",pName);
-	format(query,64,"DELETE FROM `Banlist` WHERE `Name` = '%s'",pName);
-	return mysql_function_query(mysqlHandle,query,false,"OnPlayerUnBanSuccess","ds",adminid,pName);
+	
+	if(!rows)
+	{
+		SendClientMessageF(adminid,-1,"[Ошибка]: {AFAFAF}Ника {FF0000}%s {AFAFAF}нет в банлисте",pName);
+		
+		return 1;
+	}
+	
+	mysql_format(mysqlHandle, query, sizeof query, "DELETE FROM `Banlist` WHERE `Name` = SHA2('%s', 512)", pName);
+	mysql_function_query(mysqlHandle, query, false, "OnPlayerUnBanSuccess", "is", adminid, pName);
+	
+	return 1;
 }
+
+
 
 public OnPlayerUnBanSuccess(adminid, pName[]);
 public OnPlayerUnBanSuccess(adminid, pName[])
 {
-    return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}разбанил ник {FFFF00}'%s'",Player[adminid][Name],pName);
+    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}разбанил ник {FFFF00}'%s'",Player[adminid][Name],pName);
+    
+    return 1;
 }
 
-public OnArenasLoad();
-public OnArenasLoad()
+
+
+public OnArenaLoad();
+public OnArenaLoad()
 {
-	new
-		int_data[12],
-		string_data[64],
-		rows, fields
-	;
+	new rows;
+	new fields;
+	new string[64];
 		
-	cache_get_data(rows,fields);
-	printf("Арены: %d строк, %d полей (Всего %d яйчеек данных)",rows,fields,(rows * fields));
+	cache_get_data(rows, fields, mysqlHandle);
+	
+	printf("Арены: %i строк, %i полей (Всего %i яйчеек данных)", rows, fields, (rows * fields));
 	fields = GetTickCount();
 	
-	for(new i; i != rows; i++)
+	while(rows--)
 	{
-		Arena[i][Exists] = true;
-		cache_get_field_content(i,"Interior",int_data);
-		Arena[i][Interior] = strval(int_data);
-		cache_get_field_content(i,"CP",string_data);
-		sscanf(string_data,"p<,>fff",Arena[i][CP][0],Arena[i][CP][1],Arena[i][CP][2]);
+		Arena[rows][Exists] = true;
+		Arena[rows][Interior] = cache_get_field_content_int(rows, "interior", mysqlHandle);
 		
-		for(new spawn, array; spawn != Max_Spawns; spawn++, array += 3)
+		cache_get_field_content(rows, "cp", string, mysqlHandle);
+		
+		for(new x; x != 3; x++)
 		{
-			format(int_data,12,"A%d",spawn);
- 			cache_get_field_content(i,int_data,string_data);
- 			sscanf(string_data,"p<,>fff",Arena[i][AttSpawn][array],Arena[i][AttSpawn][array + 1],Arena[i][AttSpawn][array + 2]);
-				    
-    		format(int_data,12,"D%d",spawn);
-	    	cache_get_field_content(i,int_data,string_data);
-		    sscanf(string_data,"p<,>fff",Arena[i][DefSpawn][array],Arena[i][DefSpawn][array + 1],Arena[i][DefSpawn][array + 2]);
+		    Arena[rows][CP][x] = fparam(string, ',', x);
 		}
 		
-		cache_get_field_content(i,"Quad",string_data);
-		sscanf(string_data,"p<,>ffff",Arena[i][Quad][0],Arena[i][Quad][1],Arena[i][Quad][2],Arena[i][Quad][3]);
-				
-		if(Arena[i][Quad][0] != 3000.0 && Arena[i][Quad][1] != -3000.0)
+		for(new spawn, array, id[12]; spawn != Max_Spawns; spawn++, array += 3)
 		{
-			Arena[i][GangZone][0] = GangZoneCreate(Arena[i][Quad][0],Arena[i][Quad][3],3000.0,3000.0);
-			Arena[i][GangZone][1] = GangZoneCreate(Arena[i][Quad][2],-3000.0,3000.0,Arena[i][Quad][3]);
-			Arena[i][GangZone][2] = GangZoneCreate(-3000.0,Arena[i][Quad][1],Arena[i][Quad][0],3000.0);
-			Arena[i][GangZone][3] = GangZoneCreate(-3000.0,-3000.0,Arena[i][Quad][2],Arena[i][Quad][1]);
+			format(id, sizeof id, "a%i", spawn);
+ 			cache_get_field_content(rows, id, string, mysqlHandle);
+
+			for(new x; x != 3; x++)
+			{
+			    Arena[rows][AttSpawn][array + x] = fparam(string, ',', x);
+			}
+	    
+    		format(id, sizeof id, "d%i", spawn);
+	    	cache_get_field_content(rows, id, string, mysqlHandle);
+	    	
+	    	for(new x; x != 3; x++)
+	    	{
+	    	    Arena[rows][DefSpawn][array + x] = fparam(string, ',', x);
+			}
+		}
+		
+		cache_get_field_content(rows, "quad", string, mysqlHandle);
+		
+		for(new x; x != 4; x++)
+		{
+		    Arena[rows][Quad][x] = fparam(string, ',', x);
+		}
+		
+		if((Arena[rows][Quad][0] != 3000.0) && (Arena[rows][Quad][1] != -3000.0))
+		{
+			Arena[rows][GangZone][0] = GangZoneCreate(Arena[rows][Quad][0], Arena[rows][Quad][3], 3000.0, 3000.0);
+			Arena[rows][GangZone][1] = GangZoneCreate(Arena[rows][Quad][2], -3000.0, 3000.0, Arena[rows][Quad][3]);
+			Arena[rows][GangZone][2] = GangZoneCreate(-3000.0, Arena[rows][Quad][1], Arena[rows][Quad][0], 3000.0);
+			Arena[rows][GangZone][3] = GangZoneCreate(-3000.0, -3000.0, Arena[rows][Quad][2], Arena[rows][Quad][1]);
 		}
 	}
 	
-	printf("Загрузка арен завершена (%d msec)",(GetTickCount() - fields));
+	printf("Загрузка арен завершена (%i msec)", (GetTickCount() - fields));
 	
 	return 1;
 }
 
-public OnBasesLoad();
-public OnBasesLoad()
+
+
+public OnBaseLoad();
+public OnBaseLoad()
 {
-	new
-	    int_data[12],
-		string_data[64],
-		rows, fields
-	;
+	new string[64];
+	new rows;
+	new fields;
 		
-	cache_get_data(rows,fields);
-	printf("Базы: %d строк, %d полей (Всего %d яйчеек данных)",rows,fields,(rows * fields));
+	cache_get_data(rows, fields, mysqlHandle);
+	
+	printf("Базы: %i строк, %i полей (Всего %i яйчеек данных)", rows, fields, (rows * fields));
 	fields = GetTickCount();
 	
-	for(new i; i != rows; i++)
+	while(rows--)
 	{
- 		Base[i][Exists] = true;
-   		cache_get_field_content(i,"Interior",int_data);
-	    Base[i][Interior] = strval(int_data);
-		cache_get_field_content(i,"CP",string_data);
-		sscanf(string_data,"p<,>fff",Base[i][CP][0],Base[i][CP][1],Base[i][CP][2]);
+ 		Base[rows][Exists] = true;
+	    Base[rows][Interior] = cache_get_field_content_int(rows, "interior", mysqlHandle);
+	    
+		cache_get_field_content(rows, "cp", string, mysqlHandle);
 		
-		for(new spawn, array; spawn != Max_Spawns; spawn++, array += 3)
+		for(new x; x != 3; x++)
 		{
-			format(int_data,12,"A%d",spawn);
-			cache_get_field_content(i,int_data,string_data);
-   			sscanf(string_data,"p<,>fff",Base[i][AttSpawn][array],Base[i][AttSpawn][array + 1],Base[i][AttSpawn][array + 2]);
-
-			format(int_data,12,"D%d",spawn);
-			cache_get_field_content(i,int_data,string_data);
-   			sscanf(string_data,"p<,>fff",Base[i][DefSpawn][array],Base[i][DefSpawn][array + 1],Base[i][DefSpawn][array + 2]);
+		    Base[rows][CP][x] = fparam(string, ',', x);
+		}
+		
+		for(new spawn, array, id[12]; spawn != Max_Spawns; spawn++, array += 3)
+		{
+			format(id, sizeof id, "a%i", spawn);
+			cache_get_field_content(rows, id, string, mysqlHandle);
+			
+			for(new x; x != 3; x++)
+			{
+			    Base[rows][AttSpawn][array + x] = fparam(string, ',', x);
+			}
+			
+			format(id, sizeof id, "d%i", spawn);
+			cache_get_field_content(rows, id, string, mysqlHandle);
+			
+			for(new x; x != 3; x++)
+			{
+			    Base[rows][DefSpawn][array + x] = fparam(string, ',', x);
+			}
 		}
 	}
 	
-	printf("Загрузка баз завершена (%d msec)",(GetTickCount() - fields));
+	printf("Загрузка баз завершена (%i msec)", (GetTickCount() - fields));
 	
 	return 1;
 }
 
-public OnCTFsLoad();
-public OnCTFsLoad()
+
+
+public OnCTFLoad();
+public OnCTFLoad()
 {
-	new
-	    int_data[12],
-	    string_data[64],
-	    rows, fields
- 	;
+	new string[64];
+	new rows;
+	new fields;
 	    
-	cache_get_data(rows,fields);
-	printf("CTF: %d строк, %d полей (Всего %d яйчеек данных)",rows,fields,(rows * fields));
+	cache_get_data(rows, fields, mysqlHandle);
+	
+	printf("CTF: %i строк, %i полей (Всего %i яйчеек данных)", rows, fields, (rows * fields));
 	fields = GetTickCount();
 	
-	for(new i; i != rows; i++)
+	while(rows--)
 	{
-	    CTF[i][Exists] = true;
-	    cache_get_field_content(i,"Interior",int_data);
-	    CTF[i][Interior] = strval(int_data);
-		cache_get_field_content(i,"CP",string_data);
-	    sscanf(string_data,"p<,>fff",CTF[i][CP][0],CTF[i][CP][1],CTF[i][CP][2]);
-	    cache_get_field_content(i,"ACP",string_data);
-	    sscanf(string_data,"p<,>fff",CTF[i][ACP][0],CTF[i][ACP][1],CTF[i][ACP][2]);
-	    cache_get_field_content(i,"DCP",string_data);
-	    sscanf(string_data,"p<,>fff",CTF[i][DCP][0],CTF[i][DCP][1],CTF[i][DCP][2]);
+	    CTF[rows][Exists] = true;
+	    CTF[rows][Interior] = cache_get_field_content_int(rows, "interior", mysqlHandle);
 	    
-	    for(new spawn, array; spawn != Max_Spawns; spawn++, array += 3)
+		cache_get_field_content(rows, "cp", string, mysqlHandle);
+		
+		for(new x; x != 3; x++)
+		{
+		    CTF[rows][CP][x] = fparam(string, ',', x);
+		}
+		
+	    cache_get_field_content(rows, "acp", string, mysqlHandle);
+	    
+	    for(new x; x != 3; x++)
 	    {
-			format(int_data,12,"A%d",spawn);
-			cache_get_field_content(i,int_data,string_data);
-			sscanf(string_data,"p<,>fff",CTF[i][AttSpawn][array],CTF[i][AttSpawn][array + 1],CTF[i][AttSpawn][array + 2]);
+	        CTF[rows][ACP][x] = fparam(string, ',', x);
+		}
 
-			format(int_data,12,"D%d",spawn);
-			cache_get_field_content(i,int_data,string_data);
-			sscanf(string_data,"p<,>fff",CTF[i][DefSpawn][array],CTF[i][DefSpawn][array + 1],CTF[i][DefSpawn][array + 2]);
+	    cache_get_field_content(rows, "dcp", string, mysqlHandle);
+	    
+	    for(new x; x != 3; x++)
+	    {
+	        CTF[rows][DCP][x] = fparam(string, ',', x);
+		}
+	    
+	    for(new spawn, array, id[12]; spawn != Max_Spawns; spawn++, array += 3)
+	    {
+			format(id, sizeof id, "a%i", spawn);
+			cache_get_field_content(rows, id, string, mysqlHandle);
+			
+			for(new x; x != 3; x++)
+			{
+			    CTF[rows][AttSpawn][array + x] = fparam(string, ',', x);
+			}
+			
+			format(id, sizeof id, "d%i", spawn);
+			cache_get_field_content(rows, id, string, mysqlHandle);
+
+			for(new x; x != 3; x++)
+			{
+			    CTF[rows][DefSpawn][array + x] = fparam(string, ',', x);
+			}
 		}
 		
-		cache_get_field_content(i,"Quad",string_data);
-  		sscanf(string_data,"p<,>ffff",CTF[i][Quad][0],CTF[i][Quad][1],CTF[i][Quad][2],CTF[i][Quad][3]);
+		cache_get_field_content(rows, "quad", string, mysqlHandle);
+		
+		for(new x; x != 4; x++)
+		{
+		    CTF[rows][Quad][x] = fparam(string, ',', x);
+		}
   		
-	    if(CTF[i][Quad][0] != 3000.0 && CTF[i][Quad][1] != -3000.0)
+	    if((CTF[rows][Quad][0] != 3000.0) && (CTF[rows][Quad][1] != -3000.0))
 	    {
-     		CTF[i][GangZone][0] = GangZoneCreate(CTF[i][Quad][0],CTF[i][Quad][3],3000.0,3000.0);
-   			CTF[i][GangZone][1] = GangZoneCreate(CTF[i][Quad][2],-3000.0,3000.0,CTF[i][Quad][3]);
-     		CTF[i][GangZone][2] = GangZoneCreate(-3000.0,CTF[i][Quad][1],CTF[i][Quad][0],3000.0);
-      		CTF[i][GangZone][3] = GangZoneCreate(-3000.0,-3000.0,CTF[i][Quad][2],CTF[i][Quad][1]);
+     		CTF[rows][GangZone][0] = GangZoneCreate(CTF[rows][Quad][0], CTF[rows][Quad][3], 3000.0, 3000.0);
+   			CTF[rows][GangZone][1] = GangZoneCreate(CTF[rows][Quad][2], -3000.0, 3000.0, CTF[rows][Quad][3]);
+     		CTF[rows][GangZone][2] = GangZoneCreate(-3000.0, CTF[rows][Quad][1], CTF[rows][Quad][0], 3000.0);
+      		CTF[rows][GangZone][3] = GangZoneCreate(-3000.0, -3000.0, CTF[rows][Quad][2], CTF[rows][Quad][1]);
 		}
 	}
 	
-	printf("Загрузка CTF завершена (%d msec)",(GetTickCount() - fields));
+	printf("Загрузка CTF завершена (%i msec)", (GetTickCount() - fields));
 	
 	return 1;
 }
 
-public OnDMsLoad();
-public OnDMsLoad()
+
+
+public OnDMLoad();
+public OnDMLoad()
 {
-	new
-	    int_data[12],
-	    string_data[64],
-	    rows, fields
- 	;
+	new string[64];
+	new rows;
+	new fields;
 	    
-	cache_get_data(rows,fields);
-	printf("DM: %d строк, %d полей (Всего %d яйчеек данных)",rows,fields,(rows * fields));
+	cache_get_data(rows, fields, mysqlHandle);
+	
+	printf("DM: %i строк, %i полей (Всего %i яйчеек данных)", rows, fields, (rows * fields));
 	fields = GetTickCount();
 	
-	for(new i; i != rows; i++)
+	while(rows--)
 	{
-	    DM[i][Exists] = true;
-	    cache_get_field_content(i,"Interior",int_data);
-	    DM[i][Interior] = strval(int_data);
-	    cache_get_field_content(i,"W1",int_data);
-	    DM[i][W][0] = strval(int_data);
-	    cache_get_field_content(i,"W2",int_data);
-	    DM[i][W][1] = strval(int_data);
+	    DM[rows][Exists] = true;
+	    DM[rows][Interior] = cache_get_field_content_int(rows, "interior", mysqlHandle);
+	    DM[rows][W][0] = cache_get_field_content_int(rows, "weapon1", mysqlHandle);
+	    DM[rows][W][1] = cache_get_field_content_int(rows, "weapon2", mysqlHandle);
 	    
-		for(new spawn, array; spawn != 5; spawn++, array += 3)
+		for(new spawn, array, id[12]; spawn != 5; spawn++, array += 3)
 		{
-  			format(int_data,12,"S%d",spawn);
-	    	cache_get_field_content(i,int_data,string_data);
-		    sscanf(string_data,"p<,>fff",DM[i][Spawns][array],DM[i][Spawns][array + 1],DM[i][Spawns][array + 2]);
+  			format(id, sizeof id, "s%i", spawn);
+	    	cache_get_field_content(rows, id, string, mysqlHandle);
+	    	
+	    	for(new x; x != 3; x++)
+	    	{
+	    	    DM[rows][Spawns][array + x] = fparam(string, ',', x);
+			}
 		}
 		
-		cache_get_field_content(i,"Quad",string_data);
-		sscanf(string_data,"p<,>ffff",DM[i][Quad][0],DM[i][Quad][1],DM[i][Quad][2],DM[i][Quad][3]);
-		
-		if(DM[i][Quad][0] != 3000.0 && DM[i][Quad][1] != -3000.0)
+		cache_get_field_content(rows, "quad", string, mysqlHandle);
+
+		for(new x; x != 4; x++)
 		{
-			DM[i][GangZone][0] = GangZoneCreate(DM[i][Quad][0],DM[i][Quad][3],3000.0,3000.0);
-			DM[i][GangZone][1] = GangZoneCreate(DM[i][Quad][2],-3000.0,3000.0,DM[i][Quad][3]);
-	 		DM[i][GangZone][2] = GangZoneCreate(-3000.0,DM[i][Quad][1],DM[i][Quad][0],3000.0);
-	  		DM[i][GangZone][3] = GangZoneCreate(-3000.0,-3000.0,DM[i][Quad][2],DM[i][Quad][1]);
+		    DM[rows][Quad][x] = fparam(string, ',', x);
+		}
+		
+		if((DM[rows][Quad][0] != 3000.0) && (DM[rows][Quad][1] != -3000.0))
+		{
+			DM[rows][GangZone][0] = GangZoneCreate(DM[rows][Quad][0], DM[rows][Quad][3], 3000.0, 3000.0);
+			DM[rows][GangZone][1] = GangZoneCreate(DM[rows][Quad][2], -3000.0, 3000.0, DM[rows][Quad][3]);
+	 		DM[rows][GangZone][2] = GangZoneCreate(-3000.0, DM[rows][Quad][1], DM[rows][Quad][0], 3000.0);
+	  		DM[rows][GangZone][3] = GangZoneCreate(-3000.0, -3000.0, DM[rows][Quad][2], DM[rows][Quad][1]);
 		}
 	}
 	
-	printf("Загрузка DM завершена (%d msec)",(GetTickCount() - fields));
+	printf("Загрузка DM завершена (%i msec)", (GetTickCount() - fields));
 	
 	return 1;
 }
@@ -4356,8 +4288,10 @@ public ExitGameMode()
     
     regex_delete_all();
     
-    socket_stop_listen(Socket:socketHandle);
-    socket_destroy(Socket:socketHandle);
+    socket_stop_listen(Socket:querySocketHandle);
+    socket_stop_listen(Socket:addonSocketHandle);
+    socket_destroy(Socket:querySocketHandle);
+    socket_destroy(Socket:addonSocketHandle);
     
 	DestroyGangZones();
 	DestroyTextDraws();
@@ -4379,8 +4313,7 @@ public ServerProcessor()
 	GetGVarString("Team_Name", team[0], 12, Team_Attack);
 	GetGVarString("Team_Name", team[1], 12, Team_Defend);
 	
-	format(string, sizeof string, "worldtime %s (%d) : (%d) %s", team[0], GetGVarInt("Score", Team_Attack), GetGVarInt("Score", Team_Defend), team[1]);
-	SendRconCommand(string);
+	SendRconCommandF("worldtime %s (%i) : (%i) %s", team[0], GetGVarInt("Score", Team_Attack), GetGVarInt("Score", Team_Defend), team[1]);
 	
 	if(!GetGVarInt("Locked"))
 	{
@@ -4473,19 +4406,19 @@ public ServerProcessor()
 	            
 				if(GetPVarInt(playerid, "Ping_Exceeds") >= GetGVarInt("MaxPingExceeds"))
 				{
-				    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Высокий пинг (%d))", Player[playerid][Name], GetPlayerPing(playerid));
-                    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
+				    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Высокий пинг (%i))", Player[playerid][Name], GetPlayerPing(playerid));
+                    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
 					Kick(playerid);
 					
 				    continue;
 				}
 				
-				SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Пинг игрока {FF0000}%s {FFFFFF}(%d) {AFAFAF}превышает допустимый {FFFFFF}(%d) {FFFF00}(Предупреждение %d/%d)", Player[playerid][Name], GetPlayerPing(playerid), GetGVarInt("MaxPing"), GetPVarInt(playerid, "Ping_Exceeds"), GetGVarInt("MaxPingExceeds"));
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Пинг игрока {FF0000}%s {FFFFFF}(%i) {AFAFAF}превышает допустимый {FFFFFF}(%i) {FFFF00}(Предупреждение %i/%i)", Player[playerid][Name], GetPlayerPing(playerid), GetGVarInt("MaxPing"), GetPVarInt(playerid, "Ping_Exceeds"), GetGVarInt("MaxPingExceeds"));
 			}
 
 			if(!GetPVarInt(playerid, "Playing") && (GetPVarInt(playerid, "DM_Zone") == -1) && (GetPVarInt(playerid, "DuelID") == -1) && (GetPlayerState(playerid) != 7))
 			{
-				format(string, sizeof string, "Статистика игрока\nУбийств: %d | Смертей: %d\nСоотношение: %.2f", GetPVarInt(playerid, "Kills"), GetPVarInt(playerid, "Deaths"), GetRatio(GetPVarInt(playerid, "Kills"), GetPVarInt(playerid, "Deaths")));
+				format(string, sizeof string, "Статистика игрока\nУбийств: %i | Смертей: %i\nСоотношение: %.2f", GetPVarInt(playerid, "Kills"), GetPVarInt(playerid, "Deaths"), GetRatio(GetPVarInt(playerid, "Kills"), GetPVarInt(playerid, "Deaths")));
 				Update3DTextLabelText(Player[playerid][AtHead], 0x00FF40FF, string);
 			}
 			
@@ -4509,8 +4442,7 @@ public ServerProcessor()
 	    TextDrawSetString(Server[ArenaAndTime], "~r~~h~None~n~~r~~h~Time: ~y~None");
 	    TextDrawShowForAll(Server[ArenaAndTime]);
 	    
-	    format(string, sizeof string, "~r~~h~%s ~w~~h~(%d/%d): ~y~~h~] ~r~~h~HP: %.1f ~y~~h~] ~r~~h~Score: %d ~y~~h~]                              ~b~~h~%s ~w~~h~(%d/%d): ~y~~h~] ~b~~h~HP: %.1f ~y~~h~] ~b~~h~Score: %d ~y~~h~]", team[0], AttsActive(), AttsOnline(), AttHp(), GetGVarInt("Score", Team_Attack), team[1], DefsActive(), DefsOnline(), DefHp(), GetGVarInt("Score", Team_Defend));
-	    TextDrawSetString(Server[Main], string);
+	    TextDrawSetStringF(Server[Main], "~y~~h~] ~r~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~r~~h~HP: %.1f ~y~~h~] ~r~~h~Score: %i                              ~b~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~b~~h~HP: %.1f ~y~~h~] ~b~~h~Score: %i ~y~~h~]", team[0], AttsActive(), AttsOnline(), AttHp(), GetGVarInt("Score", Team_Attack), team[1], DefsActive(), DefsOnline(), DefHp(), GetGVarInt("Score", Team_Defend));
 	    TextDrawShowForAll(Server[Main]);
 	}
 	
@@ -4533,7 +4465,7 @@ public ServerProcessor()
 		
 		if(vehCount > 1)
 		{
-		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Баг двух водителей)", Player[playerid][Name]);
+		    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Баг двух водителей)", Player[playerid][Name]);
 			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Баг двух водителей", "AntiCheat");
 			
 			continue;
@@ -4541,7 +4473,7 @@ public ServerProcessor()
 		
 		if(ReturnPlayerArmour(playerid) > 0.0)
 		{
-		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Броня)", Player[playerid][Name]);
+		    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Броня)", Player[playerid][Name]);
 			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Броня", "AntiCheat");
 			
 			continue;
@@ -4552,7 +4484,7 @@ public ServerProcessor()
 		
 		if(GetPlayerMoney(playerid) > 0)
 		{
-		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Деньги)", Player[playerid][Name]);
+		    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Деньги)", Player[playerid][Name]);
 			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Деньги", "AntiCheat");
 			
 			continue;
@@ -4560,7 +4492,7 @@ public ServerProcessor()
 		
 		if(GetPlayerSpecialAction(playerid) == 2)
 		{
-		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: JetPack)", Player[playerid][Name]);
+		    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: JetPack)", Player[playerid][Name]);
 			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "JetPack", "AntiCheat");
 			
 			continue;
@@ -4570,7 +4502,7 @@ public ServerProcessor()
 		{
 		    if(!IsPlayerInAnyVehicle(playerid) && (GetPVarInt(playerid, "DM_Zone") == -1) && (GetPlayerSurfingVehicleID(playerid) == INVALID_VEHICLE_ID) && (speed > 50.0))
 		    {
-      			SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Cleo Fastwalk)", Player[playerid][Name]);
+      			SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Cleo Fastwalk)", Player[playerid][Name]);
 				mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Cleo Fastwalk", "AntiCheat");
 				
 				continue;
@@ -4613,7 +4545,7 @@ public ServerProcessor()
 		    {
 		        SetPVarInt(playerid, "KnifeTick", GetTickCount());
 		        
-				SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Баг ножа)", Player[playerid][Name]);
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Баг ножа)", Player[playerid][Name]);
 
 				ClearAnimations(playerid, true);
 				RemoveFromRound(playerid);
@@ -4628,14 +4560,14 @@ public ServerProcessor()
 			{
    				GivePVarInt(playerid, "Slide_Ticks", 1);
    				
-			    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игроку {FF0000}%s {AFAFAF}было выдано предупреждение за баг скольжение {FFFF00}(%d/5)", Player[playerid][Name], GetPVarInt(playerid, "Slide_Ticks"));
+			    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игроку {FF0000}%s {AFAFAF}было выдано предупреждение за баг скольжение {FFFF00}(%i/5)", Player[playerid][Name], GetPVarInt(playerid, "Slide_Ticks"));
                 ClearAnimations(playerid, true);
                 
 				if(GetPVarInt(playerid, "Slide_Ticks") >= 5)
 			    {
        				SetPVarInt(playerid, "Slide_Ticks", 0);
        				
-			        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Использование бага скольжение, игнорирование предупреждений)", Player[playerid][Name]);
+			        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Использование бага скольжение, игнорирование предупреждений)", Player[playerid][Name]);
 
 					ClearAnimations(playerid, true);
 					RemoveFromRound(playerid);
@@ -4682,8 +4614,8 @@ public ServerProcessor()
 					{
 					    if(GetPVarInt(playerid,"AFK_Check_3") >= GetGVarInt("AFK_KickTime"))
 					    {
-					        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Долгий AFK)", Player[playerid][Name]);
-					        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
+					        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Долгий AFK)", Player[playerid][Name]);
+					        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
 
 							Kick(playerid);
 					        
@@ -4695,7 +4627,7 @@ public ServerProcessor()
 					{
 					    if((GetPVarInt(playerid,"AFK_Check_3") >= GetGVarInt("AFK_RemoveTime")) && GetPVarInt(playerid,"Playing"))
 					    {
-					        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Долгий AFK)", Player[playerid][Name]);
+					        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически удален из раунда {FFFF00}(Причина: Долгий AFK)", Player[playerid][Name]);
 
 							RemoveFromRound(playerid);
 							
@@ -4776,8 +4708,8 @@ public ServerProcessor()
 						format(string, sizeof string, "~r~~h~%s (ID: %i)~n~~y~~h~%s (%i)~n~~y~~h~%s (%i)~n~~y~~h~%s~n~~r~~h~Ping: %i ~y~~h~] ~b~~h~FPS: %i", name, i, WeaponNames[PlayerWeapons[i][0][slot[0]]], PlayerWeapons[i][1][slot[0]], WeaponNames[PlayerWeapons[i][0][slot[1]]], PlayerWeapons[i][1][slot[1]], WeaponNames[PlayerWeapons[i][0][slot[2]]], GetPlayerPing(i), GetPVarInt(i, "FPS"));
 					}
 				}
-				
-				PlayerTextDrawSetString(playerid, Player[playerid][SpecText], string);
+
+                PlayerTextDrawSetString(playerid, Player[playerid][SpecText], string);
 				PlayerTextDrawShow(playerid, Player[playerid][SpecText]);
 				
 				GetPlayerKeys(playerid, i, i, i);
@@ -4798,20 +4730,17 @@ public ServerProcessor()
 	{
 		new Float:pos[3];
 		
-	    format(string, sizeof string, "~r~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~r~~h~HP: %.1f ~y~~h~] ~r~~h~Score: %i ~y~~h~]                              ~b~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~b~~h~HP: %.1f ~y~~h~] ~b~~h~Score: %i ~y~~h~]", team[0], AttsActive(), AttsOnline(), AttHp(), GetGVarInt("Score", Team_Attack), team[1], DefsActive(), DefsOnline(), DefHp(), GetGVarInt("Score", Team_Defend));
-	    TextDrawSetString(Server[Main], string);
+	    TextDrawSetStringF(Server[Main], "~y~~h~] ~r~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~r~~h~HP: %.1f ~y~~h~] ~r~~h~Score: %i                              ~b~~h~%s ~w~~h~(%i/%i): ~y~~h~] ~b~~h~HP: %.1f ~y~~h~] ~b~~h~Score: %i ~y~~h~]", team[0], AttsActive(), AttsOnline(), AttHp(), GetGVarInt("Score", Team_Attack), team[1], DefsActive(), DefsOnline(), DefHp(), GetGVarInt("Score", Team_Defend));
 	    TextDrawShowForAll(Server[Main]);
 				
 	    switch(GetGVarInt("GameType"))
 	    {
 	        case Gametype_Base:
 	        {
-	            format(string, sizeof string, "~r~~h~Base: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-		        TextDrawSetString(Server[ArenaAndTime], string);
+		        TextDrawSetStringF(Server[ArenaAndTime], "~r~~h~Base: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 		        TextDrawShowForAll(Server[ArenaAndTime]);
 		        
-		        format(string, sizeof string, "mapname Base: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-		        SendRconCommand(string);
+		        SendRconCommandF("mapname Base: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 		        
 				foreach_p(playerid)
 				{
@@ -4826,14 +4755,13 @@ public ServerProcessor()
 						{
 						    GivePVarInt(playerid, "Disqual_Time", -1);
 						    
-						    format(string, sizeof string, "~y~Come Back to ~b~Base~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", GetPVarInt(playerid, "Disqual_Time"));
-							GameTextForPlayer(playerid, string, 1200, 3);
+							GameTextForPlayerF(playerid, "~y~Come Back to ~b~Base~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", 1200, 3, GetPVarInt(playerid, "Disqual_Time"));
 							
 							PlayerPlaySound(playerid, 1084, 0.0, 0.0, 0.0);
 							
 							if(GetPVarInt(playerid, "Disqual_Time") <= 0)
 							{
-							    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок %s был автоматически дисквалифицирован {FFFF00}(Причина: Сильная отдаленость от базы)", Player[playerid][Name]);
+							    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок %s был автоматически дисквалифицирован {FFFF00}(Причина: Сильная отдаленость от базы)", Player[playerid][Name]);
 								RemoveFromRound(playerid);
 							}
 						}
@@ -4883,21 +4811,17 @@ public ServerProcessor()
 			{
 			    if(!GetGVarInt("CW"))
 			    {
-			        format(string, sizeof string, "~r~~h~Arena: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-			        TextDrawSetString(Server[ArenaAndTime], string);
+			        TextDrawSetStringF(Server[ArenaAndTime], "~r~~h~Arena: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 			        TextDrawShowForAll(Server[ArenaAndTime]);
 			        
-			        format(string, sizeof string, "mapname Arena: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-			        SendRconCommand(string);
+			        SendRconCommandF("mapname Arena: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 				}
 				else
 				{
-				    format(string, sizeof string, "~r~~h~Arena: ~y~%i~n~~r~~h~Time: ~y~None", Server[Current]);
-				    TextDrawSetString(Server[ArenaAndTime], string);
+				    TextDrawSetStringF(Server[ArenaAndTime], "~r~~h~Arena: ~y~%i~n~~r~~h~Time: ~y~None", Server[Current]);
 				    TextDrawShowForAll(Server[ArenaAndTime]);
 				    
-					format(string, sizeof string, "mapname Arena: %d", Server[Current]);
-					SendRconCommand(string);
+					SendRconCommandF("mapname Arena: %i", Server[Current]);
 				}
 				
 			    foreach_p(playerid)
@@ -4906,14 +4830,13 @@ public ServerProcessor()
 			        {
 			            GivePVarInt(playerid, "Disqual_Time", -1);
 			            
-			            format(string, sizeof string, "~y~Come Back to ~r~Arena~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", GetPVarInt(playerid, "Disqual_Time"));
-						GameTextForPlayer(playerid, string, 1200, 3);
+						GameTextForPlayerF(playerid, "~y~Come Back to ~r~Arena~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", 1200, 3, GetPVarInt(playerid, "Disqual_Time"));
 						
 						PlayerPlaySound(playerid, 1084, 0.0, 0.0, 0.0);
 						
 						if(GetPVarInt(playerid, "Disqual_Time") <= 0)
 						{
-						    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически дисквалифицирован {FFFF00}(Причина: Уход за границы раунда)", Player[playerid][Name]);
+						    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически дисквалифицирован {FFFF00}(Причина: Уход за границы раунда)", Player[playerid][Name]);
 							RemoveFromRound(playerid);
 						}
 					}
@@ -4958,26 +4881,24 @@ public ServerProcessor()
 			
 			case Gametype_CTF:
 			{
-			    format(string, sizeof string, "~r~~h~CTF: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-				TextDrawSetString(Server[ArenaAndTime], string);
+				TextDrawSetStringF(Server[ArenaAndTime], "~r~~h~CTF: ~y~%i~n~~r~~h~Time: ~y~%02i:%02i", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 				TextDrawShowForAll(Server[ArenaAndTime]);
 				
-				format(string, sizeof string, "mapname CTF: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
-				SendRconCommand(string);
+				SendRconCommandF("mapname CTF: %i [%02i:%02i]", Server[Current], GetGVarInt("ModeMin"), GetGVarInt("ModeSec"));
 				
 			    foreach_p(playerid)
 			    {
 			        if(GetPlayerPos(playerid, pos[0], pos[1], pos[2]) && !GetPlayerInterior(playerid) && ((CTF[Server[Current]][Quad][2] < pos[0]) || (CTF[Server[Current]][Quad][0] > pos[0]) || (CTF[Server[Current]][Quad][3] < pos[1]) || (CTF[Server[Current]][Quad][1] > pos[1])) && GetPVarInt(playerid, "Playing"))
 			        {
 			            GivePVarInt(playerid, "Disqual_Time", -1);
-			            format(string, sizeof string, "~y~Come Back to ~r~zone~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", GetPVarInt(playerid, "Disqual_Time"));
-						GameTextForPlayer(playerid, string, 1200, 3);
+
+						GameTextForPlayerF(playerid, "~y~Come Back to ~r~zone~n~~y~In ~r~%i ~y~seconds~n~~y~or you will be~n~~r~Disqalified", 1200, 3, GetPVarInt(playerid, "Disqual_Time"));
 						
 						PlayerPlaySound(playerid, 1084, 0.0, 0.0, 0.0);
 						
 						if(GetPVarInt(playerid, "Disqual_Time") <= 0)
 						{
-						    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически дисквалифицирован {FFFF00}(Причина: Уход за границы раунда)", Player[playerid][Name]);
+						    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически дисквалифицирован {FFFF00}(Причина: Уход за границы раунда)", Player[playerid][Name]);
 							RemoveFromRound(playerid);
 						}
 					}
@@ -5035,164 +4956,106 @@ public ServerProcessor()
 
 
 
-public OnPlayerRegister(playerid, password_hash[]);
-public OnPlayerRegister(playerid, password_hash[])
+public OnPlayerRegister(playerid, password[]);
+public OnPlayerRegister(playerid, password[])
 {
-	new
-		t[6],
-	    query[512]
-	;
-		
-	getdate(t[0],t[1],t[2]);
-	gettime(t[3],t[4],t[5]);
-	t[0] -= 2000;
+	new query[512];
 	
-	SetPVarString(playerid,"Password",password_hash);
-	format(query,32,"[%02d-%02d-%d / %02d:%02d:%02d]",t[2],t[1],t[0],t[3],t[4],t[5]);
+	SHA512(password, query, sizeof query);
+	SetPVarString(playerid, "password", query);
 
-	format(query,512,"INSERT INTO `Accounts` VALUES ('%s','%s','None','%s','None','%s','%s','%s',0,0,0,0,0,0,0,0,0,'0,0,0,0',0,0,0,0,0,0,0,0,0,0,0,0,0)",Player[playerid][Name],password_hash,Player[playerid][IP],Player[playerid][IP],query,query);
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerLogin","dl",playerid,true);
+	mysql_format(mysqlHandle, query, sizeof query, "INSERT INTO `players` VALUES (SHA2('%s', 512), '%s', 0, 0, 0, 0, 0, 0, 0, 0, '0,0,0,0', 0, 0, 0, 0, 0, 0)", Player[playerid][Name], password);
+	mysql_function_query(mysqlHandle, query, false, "OnPlayerLogin", "di", playerid, true);
 	
  	return 1;
 }
 
+
+
 public OnPlayerSaved(playerid);
 public OnPlayerSaved(playerid)
 {
-	new
-		password[129],
-		query[512]
-	;
+	new password[129];
+	new query[512];
 		
-	GetPVarString(playerid,"Password",password,129);
-	format(query,512,"UPDATE `Accounts` SET `Password` = '%s', `LastIP` = '%s', `CurrentIP` = 'None', `Banned` = %d,`Admin` = %d,`RRuns` = %d WHERE `Name` = '%s'",password,Player[playerid][IP],GetPVarInt(playerid,"Banned"),GetPVarInt(playerid,"Admin"),GetPVarInt(playerid,"RunsFromRound"),Player[playerid][Name]);
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerFirstSave","dd",playerid,GetTickCount());
+	GetPVarString(playerid, "password", password, sizeof password);
+	
+	mysql_format(mysqlHandle, query, sizeof query, "UPDATE `players` SET `password` = '%s', `banned` = %i, `admin` = %i, `roundruns` = %i WHERE `Name` = SHA2('%s', 512)", password, GetPVarInt(playerid, "Banned"), GetPVarInt(playerid, "Admin"), GetPVarInt(playerid, "RunsFromRound"), Player[playerid][Name]);
+	mysql_function_query(mysqlHandle, query, false, "", "");
 
-	format(query,32,"%d,%d,%d,%d",GetPVarInt(playerid,"AtServer_D"),GetPVarInt(playerid,"AtServer_H"),GetPVarInt(playerid,"AtServer_M"),GetPVarInt(playerid,"AtServer_S"));
-	format(query,512,"UPDATE `Accounts` SET `Kills` = %d, `Deaths` = %d, `KKills` = %d, `KDeaths` = %d, `DMKills` = %d, `DMDeaths` = %d, `AtServer` = '%s' WHERE `Name` = '%s'",GetPVarInt(playerid,"Kills"),GetPVarInt(playerid,"Deaths"),GetPVarInt(playerid,"KnifeKills"),GetPVarInt(playerid,"KnifeDeaths"),GetPVarInt(playerid,"DM_Kills"),GetPVarInt(playerid,"DM_Deaths"),query,Player[playerid][Name]);
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerSecondSave","dd",playerid,GetTickCount());
+	format(password, sizeof password, "%i,%i,%i,%i", GetPVarInt(playerid, "AtServer_D"), GetPVarInt(playerid, "AtServer_H"), GetPVarInt(playerid, "AtServer_M"), GetPVarInt(playerid, "AtServer_S"));
+	mysql_format(mysqlHandle, query, sizeof query, "UPDATE `players` SET `kills` = %i, `deaths` = %i, `knifekills` = %i, `knifedeaths` = %i, `dmkills` = %i, `dmdeaths` = %i, `at_server` = '%s' WHERE `Name` = SHA2('%s', 512)", GetPVarInt(playerid, "Kills"), GetPVarInt(playerid, "Deaths"), GetPVarInt(playerid, "KnifeKills"), GetPVarInt(playerid, "KnifeDeaths"), GetPVarInt(playerid, "DM_Kills"), GetPVarInt(playerid, "DM_Deaths"), password, Player[playerid][Name]);
+	mysql_function_query(mysqlHandle, query, false, "", "");
 
-	format(query,512,"UPDATE `Accounts` SET `APlayed` = %d, `BPlayed` = %d, `CPlayed` = %d, `TWins` = %d, `TLoses` = %d WHERE `Name` = '%s'",GetPVarInt(playerid,"A_Played"),GetPVarInt(playerid,"B_Played"),GetPVarInt(playerid,"C_Played"),GetPVarInt(playerid,"Team_Wins"),GetPVarInt(playerid,"Team_Loses"),Player[playerid][Name]);
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerThirdSave","dd",playerid,GetTickCount());
+	mysql_format(mysqlHandle, query, sizeof query, "UPDATE `players` SET `a_played` = %i, `b_played` = %i, `c_played` = %i, `teamwins` = %i, `teamloses` = %i WHERE `Name` = SHA2('%s', 512)", GetPVarInt(playerid, "A_Played"), GetPVarInt(playerid, "B_Played"), GetPVarInt(playerid, "C_Played"), GetPVarInt(playerid, "Team_Wins"), GetPVarInt(playerid, "Team_Loses"), Player[playerid][Name]);
+	mysql_function_query(mysqlHandle, query, false, "", "");
 	
 	return 1;
 }
 
-public OnPlayerFirstSave(playerid, gTick);
-public OnPlayerFirstSave(playerid, gTick)
-{
-	printf("mySQL::allocate_debug()-> 'SAVE №1 выполнен (%s, %d msec)'",Player[playerid][Name],(GetTickCount() - gTick));
-	print("mySQL:allocate_debug()-> 'Ожидание SAVE №2...'");
-	
-	return 1;
-}
 
-public OnPlayerSecondSave(playerid, gTick);
-public OnPlayerSecondSave(playerid, gTick)
-{
-	printf("mySQL::allocate_debug()-> 'SAVE №2 выполнен (%s, %d msec)'",Player[playerid][Name],(GetTickCount() - gTick));
-	print("mySQL:allocate_debug()-> 'Ожидание SAVE №3...'");
-	
-	return 1;
-}
-
-public OnPlayerThirdSave(playerid, gTick);
-public OnPlayerThirdSave(playerid, gTick)
-{
-	printf("mySQL::allocate_debug()-> 'SAVE №3 выполнен (%s, %d msec)'",Player[playerid][Name],(GetTickCount() - gTick));
-
-	return 1;
-}
 
 public OnPlayerLogin(playerid, bool:passed);
 public OnPlayerLogin(playerid, bool:passed)
 {
-	new
-		int_data[12],
-		string_data[140],
-	    rows, fields
-  	;
+	new query[140];
+ 	new rows;
+	new fields;
   	
-	cache_get_data(rows,fields);
+	cache_get_data(rows, fields, mysqlHandle);
 	
-	if(!rows) return ShowPlayerRegisterDialog(playerid);
-	if(!GetPVarInt(playerid,"Logged"))
+	if(!rows)
 	{
-	    format(string_data,140,"SELECT `Password` FROM `Accounts` WHERE `Name` = '%s' LIMIT 1",Player[playerid][Name]);
-	    return mysql_function_query(mysqlHandle,string_data,true,"OnPlayerPasswordReceived","dd",playerid,GetTickCount());
+		ShowPlayerRegisterDialog(playerid);
+		
+		return 1;
 	}
 	
-	cache_get_field_content(0,"RegDate",string_data);
-	SetPVarString(playerid,"Reg_Date",string_data);
-	
-	cache_get_field_content(0,"Banned",int_data);
-	SetPVarInt(playerid,"Banned",strval(int_data));
-	if(GetPVarInt(playerid,"Banned"))
+	if(!GetPVarInt(playerid, "Logged"))
 	{
-	    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Забаненый аккаунт)",Player[playerid][Name]);
-        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)",Player[playerid][Name]);
+	    mysql_format(mysqlHandle, query, sizeof query, "SELECT `password` FROM `players` WHERE `name` = SHA2('%s', 512) LIMIT 1", Player[playerid][Name]);
+	    mysql_function_query(mysqlHandle, query, true, "OnPlayerPasswordReceived", "i", playerid);
+	    
+	    return 1;
+	}
+	
+	SetPVarInt(playerid, "Banned", cache_get_field_content_int(0, "banned", mysqlHandle));
+	
+	if(GetPVarInt(playerid, "Banned"))
+	{
+	    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Забаненый аккаунт)", Player[playerid][Name]);
+        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
 		Kick(playerid);
+		
 		return 0;
 	}
 	
-	cache_get_field_content(0,"Admin",int_data);
-	SetPVarInt(playerid,"Admin",strval(int_data));
+	SetPVarInt(playerid, "Admin", cache_get_field_content_int(0, "admin", mysqlHandle));
 	
-	cache_get_field_content(0,"Kills",int_data);
-	SetPVarInt(playerid,"Kills",strval(int_data));
-	SetPlayerScore(playerid,GetPVarInt(playerid,"Kills"));
+	SetPVarInt(playerid, "Kills", cache_get_field_content_int(0, "kills", mysqlHandle));
+	SetPlayerScore(playerid, GetPVarInt(playerid, "Kills"));
+	SetPVarInt(playerid, "Deaths", cache_get_field_content_int(0, "deaths", mysqlHandle));
+	SetPVarInt(playerid, "KnifeKills", cache_get_field_content_int(0, "knifekills", mysqlHandle));
+	SetPVarInt(playerid, "KnifeDeaths", cache_get_field_content_int(0, "knifedeaths", mysqlHandle));
+	SetPVarInt(playerid, "DM_Kills", cache_get_field_content_int(0, "dmkills", mysqlHandle));
+	SetPVarInt(playerid, "DM_Deaths", cache_get_field_content_int(0, "dmdeaths", mysqlHandle));
 	
-	cache_get_field_content(0,"Deaths",int_data);
-	SetPVarInt(playerid,"Deaths",strval(int_data));
-	
-	cache_get_field_content(0,"KKills",int_data);
-	SetPVarInt(playerid,"KnifeKills",strval(int_data));
-	
-	cache_get_field_content(0,"KDeaths",int_data);
-	SetPVarInt(playerid,"KnifeDeaths",strval(int_data));
-	
-	cache_get_field_content(0,"DMKills",int_data);
-	SetPVarInt(playerid,"DM_Kills",strval(int_data));
-	
-	cache_get_field_content(0,"DMDeaths",int_data);
-	SetPVarInt(playerid,"DM_Deaths",strval(int_data));
-	
-	cache_get_field_content(0,"AtServer",string_data);
-	sscanf(string_data,"p<,>dddd",int_data[0],int_data[1],int_data[2],int_data[3]);
-	SetPVarInt(playerid,"AtServer_D",int_data[0]);
-	SetPVarInt(playerid,"AtServer_H",int_data[1]);
-	SetPVarInt(playerid,"AtServer_M",int_data[2]);
-	SetPVarInt(playerid,"AtServer_S",int_data[3]);
-	
-	cache_get_field_content(0,"APlayed",int_data);
-	SetPVarInt(playerid,"A_Played",strval(int_data));
-	
-	cache_get_field_content(0,"BPlayed",int_data);
-	SetPVarInt(playerid,"B_Played",strval(int_data));
-	
-	cache_get_field_content(0,"CPlayed",int_data);
-	SetPVarInt(playerid,"C_Played",strval(int_data));
-	
-	cache_get_field_content(0,"RRuns",int_data);
-	SetPVarInt(playerid,"RunsFromRound",strval(int_data));
-	
-	cache_get_field_content(0,"TWins",int_data);
-	SetPVarInt(playerid,"Team_Wins",strval(int_data));
-	
-	cache_get_field_content(0,"TLoses",int_data);
-	SetPVarInt(playerid,"Team_Loses",strval(int_data));
-	
-	getdate(int_data[0],int_data[1],int_data[2]);
-	gettime(int_data[3],int_data[4],int_data[5]);
-	int_data[0] -= 2000;
-	
-	format(string_data,32,"[%02d-%02d-%d / %02d:%02d:%02d]",int_data[2],int_data[1],int_data[0],int_data[3],int_data[4],int_data[5]);
-	SetPVarString(playerid,"Login_Date",string_data);
-	
-	format(string_data,140,"UPDATE `Accounts` SET `LoginDate` = '%s',`CurrentIP` = '%s' WHERE `Name` = '%s'",string_data,Player[playerid][IP],Player[playerid][Name]);
-	mysql_function_query(mysqlHandle,string_data,false,"OnPlayerLoginDateSaved","dd",playerid,GetTickCount());
+	cache_get_field_content(0, "at_server", query);
 
-	TogglePlayerSpectating(playerid,false);
+	SetPVarInt(playerid,"AtServer_D", iparam(query, ',', 0));
+	SetPVarInt(playerid,"AtServer_H", iparam(query, ',', 1));
+	SetPVarInt(playerid,"AtServer_M", iparam(query, ',', 2));
+	SetPVarInt(playerid,"AtServer_S", iparam(query, ',', 3));
+	
+	SetPVarInt(playerid, "A_Played", cache_get_field_content_int(0, "a_played", mysqlHandle));
+	SetPVarInt(playerid, "B_Played", cache_get_field_content_int(0, "b_played", mysqlHandle));
+	SetPVarInt(playerid, "C_Played", cache_get_field_content_int(0, "c_played", mysqlHandle));
+
+	SetPVarInt(playerid, "RunsFromRound", cache_get_field_content_int(0, "roundruns", mysqlHandle));
+	SetPVarInt(playerid, "Team_Wins", cache_get_field_content_int(0, "teamwins", mysqlHandle));
+	SetPVarInt(playerid, "Team_Loses", cache_get_field_content_int(0, "teamloses", mysqlHandle));
+
+	TogglePlayerSpectating(playerid, false);
 	
 	switch(GetPVarInt(playerid,"Admin"))
 	{
@@ -5203,65 +5066,73 @@ public OnPlayerLogin(playerid, bool:passed)
 		case 5: return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вы успешно вошли {FF0000}(Гл. Администратор)");
 	}
 	
-	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вы успешно вошли");
+	SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вы успешно вошли");
+	
+	return 1;
 }
+
+
 
 public OnPlayerPasswordReceived(playerid);
 public OnPlayerPasswordReceived(playerid)
 {
-	new
-		password[129]
-	;
+	new password[129];
 	
-	cache_get_field_content(0,"Password",password);
-	SetPVarString(playerid,"Password",password);
+	cache_get_field_content(0, "password", password);
+	SetPVarString(playerid, "password", password);
 	
-	CallLocalFunction("LoginKick","dd",playerid,GetGVarInt("MaxLoginTime"));
+	CallLocalFunction("LoginKick", "ii", playerid, GetGVarInt("MaxLoginTime"));
 	
-	return ShowPlayerLoginDialog(playerid);
-}
-
-public OnPlayerLoginDateSaved(playerid, gTick);
-public OnPlayerLoginDateSaved(playerid, gTick)
-{
-    printf("mySQL::allocate_debug()-> 'LoginDate SAVE выполнено (%s, %d msec)'",Player[playerid][Name],(GetTickCount() - gTick));
-
+	ShowPlayerLoginDialog(playerid);
+	
 	return 1;
 }
+
+
 
 public OnPlayerLoginFailed(playerid);
 public OnPlayerLoginFailed(playerid)
 {
-    GivePVarInt(playerid,"Login_Attempts",1);
-    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Неверный пароль! {FF0000}(%d/3)",GetPVarInt(playerid,"Login_Attempts"));
-    if(GetPVarInt(playerid,"Login_Attempts") >= 3)
+    GivePVarInt(playerid, "Login_Attempts", 1);
+    SendClientMessageF(playerid, -1, "[Инфо]: {AFAFAF}Неверный пароль! {FF0000}(%i/3)", GetPVarInt(playerid, "Login_Attempts"));
+
+	if(GetPVarInt(playerid, "Login_Attempts") >= 3)
     {
-		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Исчерпаны попытки ввода пароля)",Player[playerid][Name]);
-  		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)",Player[playerid][Name]);
+		SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Исчерпаны попытки ввода пароля)", Player[playerid][Name]);
+  		SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
     	Kick(playerid);
+    	
     	return 1;
 	}
 	
-	return ShowPlayerLoginDialog(playerid);
+	ShowPlayerLoginDialog(playerid);
+	
+	return 1;
 }
+
+
 
 public HideDamage(playerid);
 public HideDamage(playerid)
 {
-	for(new i = 1; i != -1; --i)
+	for(new i; i != 2; i++)
 	{
 		PlayerTextDrawHide(playerid,Player[playerid][Damage][i]);
 	}
 	
-	SetPVarInt(playerid,"ShootCombo",0);
-	SetPVarInt(playerid,"DamageTimer",-1);
+	SetPVarInt(playerid, "ShootCombo", 0);
+	SetPVarInt(playerid, "DamageTimer", -1);
 }
+
+
 
 public DetachTrailer(vehicleid);
 public DetachTrailer(vehicleid)
 {
 	return DetachTrailerFromVehicle(vehicleid);
 }
+
+
 
 public VoteKickMove(time);
 public VoteKickMove(time)
@@ -5280,8 +5151,8 @@ public VoteKickMove(time)
 	{
 		if(GetGVarInt("VoteKick_Votes") >= int_data)
 		{
-		    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был кикнут голосованием {FFFF00}(Причина: %s)",Player[GetGVarInt("VoteKick_ID")][Name],string_data);
-		    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут голосованием)",Player[GetGVarInt("VoteKick_ID")][Name]);
+		    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был кикнут голосованием {FFFF00}(Причина: %s)",Player[GetGVarInt("VoteKick_ID")][Name],string_data);
+		    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут голосованием)",Player[GetGVarInt("VoteKick_ID")][Name]);
 		    return Kick(GetGVarInt("VoteKick_ID"));
 		}
 		return StopVoteKick();
@@ -5289,19 +5160,21 @@ public VoteKickMove(time)
 	
 	if(GetGVarInt("VoteKick_Votes") >= int_data)
 	{
- 		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был кикнут голосованием {FFFF00}(Причина: %s)",Player[GetGVarInt("VoteKick_ID")][Name],string_data);
- 		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут голосованием)",Player[GetGVarInt("VoteKick_ID")][Name]);
+ 		SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был кикнут голосованием {FFFF00}(Причина: %s)",Player[GetGVarInt("VoteKick_ID")][Name],string_data);
+ 		SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут голосованием)",Player[GetGVarInt("VoteKick_ID")][Name]);
  		return Kick(GetGVarInt("VoteKick_ID"));
 	}
 	
 	strcpy(string_data,Player[GetGVarInt("VoteKick_ID")][Name]);
 	ReplaceStyleChars(string_data);
-	format(string_data,64,"VoteKick~n~%s (ID: %d)~n~Votes: (%d/%d)",string_data,GetGVarInt("VoteKick_ID"),GetGVarInt("VoteKick_Votes"),int_data);
-	TextDrawSetString(VoteKickText,string_data);
+
+	TextDrawSetStringF(VoteKickText, "VoteKick~n~%s (ID: %i)~n~Votes: (%i/%i)", string_data, GetGVarInt("VoteKick_ID"), GetGVarInt("VoteKick_Votes"), int_data);
 	TextDrawShowForAll(VoteKickText);
 	
-	return SetTimerEx("VoteKickMove",1000,false,"d",--time);
+	return SetTimerEx("VoteKickMove", 1000, false, "i", --time);
 }
+
+
 
 public VoteBanMove(time);
 public VoteBanMove(time)
@@ -5325,7 +5198,7 @@ public VoteBanMove(time)
 	{
 	    if(GetGVarInt("VoteBan_Votes") >= online)
 	    {
-	        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был забанен голосованием {FFFF00}(Причина: %s)", Player[GetGVarInt("VoteBan_ID")][Name], string);
+	        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был забанен голосованием {FFFF00}(Причина: %s)", Player[GetGVarInt("VoteBan_ID")][Name], string);
 			format(string, sizeof string, "Забанен голосованием. Причина: %s", string);
 			mysql_ban(GetGVarInt("VoteBan_ID"), INVALID_PLAYER_ID, -1, string, "VoteBan");
 		}
@@ -5335,7 +5208,7 @@ public VoteBanMove(time)
 	
 	if(GetGVarInt("VoteBan_Votes") >= online)
  	{
-  		SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был забанен голосованием {FFFF00}(Причина: %s)", Player[GetGVarInt("VoteBan_ID")][Name], string);
+  		SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был забанен голосованием {FFFF00}(Причина: %s)", Player[GetGVarInt("VoteBan_ID")][Name], string);
 		format(string, sizeof string, "Забанен голосованием. Причина: %s", string);
 		mysql_ban(GetGVarInt("VoteBan_ID"), INVALID_PLAYER_ID, -1, string, "VoteBan");
 		
@@ -5345,8 +5218,7 @@ public VoteBanMove(time)
 	strcpy(string, Player[GetGVarInt("VoteBan_ID")][Name]);
 	ReplaceStyleChars(string);
 	
-	format(string, sizeof string, "VoteBan~n~%s (ID: %i)~n~Votes: (%i/%i)", string, GetGVarInt("VoteBan_ID"), GetGVarInt("VoteBan_Votes"), online);
-	TextDrawSetString(VoteBanText, string);
+	TextDrawSetStringF(VoteBanText, "VoteBan~n~%s (ID: %i)~n~Votes: (%i/%i)", string, GetGVarInt("VoteBan_ID"), GetGVarInt("VoteBan_Votes"), online);
 	TextDrawShowForAll(VoteBanText);
 	
 	return SetTimerEx("VoteBanMove", 1000, false, "i", --time);
@@ -5414,8 +5286,13 @@ public Balance(Type)
 		}
 		else if(Type == BalanceType_Random) return CallLocalFunction("Balance","d",random(2) + 1);
 	}
-	return SendClientMessageToAll(-1,"[Инфо]: {00FF40}AutoBalance: {AFAFAF}Комманды автоматически сбалансированы {FFFF00}(№%d)",Type);
+	
+	SendClientMessageToAllF(-1,"[Инфо]: {00FF40}AutoBalance: {AFAFAF}Комманды автоматически сбалансированы {FFFF00}(№%i)",Type);
+	
+	return 1;
 }
+
+
 
 public SwapAll();
 public SwapAll()
@@ -5453,6 +5330,8 @@ public SwapAll()
 	SendClientMessageToAll(-1,"[Инфо]: {00FF40}AutoSwap: {AFAFAF}Комманды автоматически сменены местами");
 }
 
+
+
 public ClearMinusHealth(playerid);
 public ClearMinusHealth(playerid)
 {
@@ -5466,20 +5345,29 @@ public ClearMinusHealth(playerid)
 	Update3DTextLabelText(Player[playerid][AtHead],GetPlayerColor(playerid)," ");
 }
 
+
+
 public Intro(playerid);
 public Intro(playerid)
 {
-	if(!GetPVarInt(playerid,"Connected")) return 1;
+	if(!GetPVarInt(playerid,"Connected"))
+	{
+		return 1;
+	}
 	
-	SetPVarInt(playerid,"Camera_0",1);
+	SetPVarInt(playerid, "Camera_0", 1);
 	HideDialog(playerid);
-	SetPlayerVirtualWorld(playerid,Intro_VW);
-	TextDrawShowForPlayer(playerid,Server[BlackFullScreen]);
-	PlayerPlaySound(playerid,1068,0.0,0.0,0.0);
-	SetPlayerCameraPos(playerid,0.0,0.0,0.0 + 50.0);
+	SetPlayerVirtualWorld(playerid, Intro_VW);
+	TextDrawShowForPlayer(playerid, Server[BlackFullScreen]);
+	PlayerPlaySound(playerid, 1068, 0.0, 0.0, 0.0);
+	SetPlayerCameraPos(playerid, 0.0, 0.0, 0.0 + 50.0);
 	
-	return CallLocalFunction("DrawLetters","dd",playerid,0);
+	CallLocalFunction("DrawLetters", "ii", playerid, 0);
+	
+	return 1;
 }
+
+
 
 public DrawLetters(playerid, numb);
 public DrawLetters(playerid, numb)
@@ -5488,136 +5376,168 @@ public DrawLetters(playerid, numb)
 	
 	switch(numb)
 	{
-	    case 0, 1: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"G");
-	    case 2: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go");
-	    case 3: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go R");
-	    case 4: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Ru");
-	    case 5: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rus");
-	    case 6: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush");
-	    case 7: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ]");
-	    case 8: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] T");
-	    case 9: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Tr");
-	    case 10: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Tra");
-	    case 11: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Trai");
-	    case 12: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Train");
-	    case 13: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Traini");
-	    case 14: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Trainin");
-	    case 15..18: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training");
-	    case 19: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~b");
-	    case 20: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bL");
-	    case 21: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLe");
-	    case 22: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLea");
-	    case 23: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeag");
-	    case 24: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeagu");
-	    case 25: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeague");
-	    case 26: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeague v");
-	    case 27: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeague v1");
-	    case 28: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeague v1.");
-	    case 29: PlayerTextDrawSetString(playerid,Player[playerid][IntroLetters],"Go Rush ] Training~n~bLeague v1.5");
-	    default: return CallLocalFunction("LenDot","df",playerid,1.0);
+	    case 0, 1: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "B");
+	    case 2: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJI");
+	    case 3: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIA");
+	    case 4: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIAD");
+	    case 5: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADO");
+	    case 6: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOK");
+	    case 7: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC");
+	    case 8: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's");
+	    case 9: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ]");
+	    case 10: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] T");
+	    case 11: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Tr");
+	    case 12: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Tra");
+	    case 13: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Trai");
+	    case 14: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Train");
+	    case 15: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Traini");
+	    case 16: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Trainin");
+	    case 17..19: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training");
+	    case 20: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~b");
+	    case 21: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bL");
+	    case 22: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLe");
+	    case 23: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLea");
+	    case 24: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeag");
+	    case 25: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeagu");
+	    case 26: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeague");
+	    case 27: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeague v");
+	    case 28: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeague v2");
+	    case 29: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeague v2.");
+	    case 30: PlayerTextDrawSetString(playerid, Player[playerid][IntroLetters], "BJIADOKC's ] Training~n~bLeague v2.0");
+	    default:
+		{
+			CallLocalFunction("LenDot", "if", playerid, 1.0);
+			
+			return 1;
+		}
 	}
 	
 	PlayerTextDrawShow(playerid,Player[playerid][IntroLetters]);
 	PlayerPlaySound(playerid,40402,0.0,0.0,0.0);
 	
-	return SetTimerEx("DrawLetters",250,false,"dd",playerid,++numb);
+	SetTimerEx("DrawLetters", 250, false, "ii", playerid, ++numb);
+	
+	return 1;
 }
+
+
 
 public LenDot(playerid, Float:len);
 public LenDot(playerid, Float:len)
 {
-	if(len >= 60.0) return CallLocalFunction("IntroEnd","d",playerid);
+	if(len >= 65.0)
+	{
+		CallLocalFunction("IntroEnd", "i", playerid);
+		
+		return 1;
+	}
 	
-    PlayerTextDrawLetterSize(playerid,Player[playerid][Dot],len,1.000000);
-    PlayerTextDrawShow(playerid,Player[playerid][Dot]);
-    PlayerPlaySound(playerid,40405,0.0,0.0,0.0);
+    PlayerTextDrawLetterSize(playerid, Player[playerid][Dot], len, 1.000000);
+    PlayerTextDrawShow(playerid, Player[playerid][Dot]);
+    PlayerPlaySound(playerid, 40405, 0.0, 0.0, 0.0);
     
-    return SetTimerEx("LenDot",50,false,"df",playerid,(len + 2.5));
+    SetTimerEx("LenDot", 50, false, "if", playerid, (len + 2.5));
+    
+    return 1;
 }
+
+
 
 public IntroEnd(playerid);
 public IntroEnd(playerid)
 {
-	if(!GetPVarInt(playerid,"Connected")) return 1;
+	if(!GetPVarInt(playerid,"Connected"))
+	{
+		return 1;
+	}
 	
-	new
-		query[128]
-	;
+	new query[128];
 		
-	PlayerPlaySound(playerid,1083,0.0,0.0,0.0);
-	SetPVarInt(playerid,"Camera_0",0);
-  	SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %d, IP: %s] {AFAFAF}подключился к серверу",Player[playerid][Name],playerid,Player[playerid][IP]);
-	SetPlayerVirtualWorld(playerid,Intro_VW);
-	SetPlayerInterior(playerid,GetGVarInt("MainInterior"));
+	PlayerPlaySound(playerid, 1083, 0.0, 0.0, 0.0);
+	SetPVarInt(playerid, "Camera_0", false);
+  	SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %i, IP: %s] {AFAFAF}подключился к серверу", Player[playerid][Name], playerid, Player[playerid][IP]);
+	SetPlayerVirtualWorld(playerid, Intro_VW);
+	SetPlayerInterior(playerid, GetGVarInt("MainInterior"));
 	ResetPlayerWeapons(playerid);
 	
-	format(query,128,"SELECT * FROM `Accounts` WHERE `Name` = '%s' LIMIT 1",Player[playerid][Name]);
-	mysql_function_query(mysqlHandle,query,false,"OnPlayerLogin","dl",playerid,false);
+	mysql_format(mysqlHandle, query, sizeof query, "SELECT * FROM `players` WHERE `name` = SHA2('%s', 512) LIMIT 1", Player[playerid][Name]);
+	mysql_function_query(mysqlHandle, query, false, "OnPlayerLogin", "di", playerid, false);
+	
+	// temp
+	
+	TogglePlayerSpectating(playerid, false);
+	PlayerTextDrawSetString(playerid, Player[playerid][TeamText], "~w~~h~>> ~r~~h~Attack ~w~~h~<<     ~b~Defend     ~y~Refferee");
+	PlayerTextDrawShow(playerid, Player[playerid][TeamText]);
 	
 	return 1;
 }
+
+
 
 public ModeCountTimer(sec);
 public ModeCountTimer(sec)
 {
 	if(!GetGVarInt("Starting")) return 1;
 	if(sec <= 0) return CallLocalFunction("StrapUpAll","");
-	
-	new
-	    string_data[64]
-	;
-	
+
 	switch(GetGVarInt("GameType"))
 	{
 		case Gametype_Arena:
 		{
-			format(string_data,64,"Arena: %d~n~Starting in %d seconds",Server[Current],sec);
+			TextDrawSetStringF(Server[ModeStartText][2], "Arena: %i~n~Starting in %i seconds", Server[Current], sec);
 		}
 		case Gametype_Base:
 		{
-			format(string_data,64,"Base: %d~n~Starting in %d seconds",Server[Current],sec);
+			TextDrawSetStringF(Server[ModeStartText][2], "Base: %i~n~Starting in %i seconds", Server[Current], sec);
 		}
 		case Gametype_CTF:
 		{
-			format(string_data,64,"CTF: %d~n~Starting in %d seconds",Server[Current],sec);
+			TextDrawSetStringF(Server[ModeStartText][2], "CTF: %i~n~Starting in %i seconds", Server[Current], sec);
 		}
 	}
 	
-	TextDrawSetString(Server[ModeStartText][2],string_data);
-	
-	format(string_data,64,"mapname Starting... [%d sec]",sec);
-	SendRconCommand(string_data);
+	SendRconCommandF("mapname Starting... [%i sec]", sec);
 	
 	foreach_p(i)
 	{
-	    if(!GetPVarInt(i,"Playing") || GetPVarInt(i,"No_Play") || GetPVarInt(i,"AFK_In")) continue;
-	    
-		for(new x = 2; x != -1; --x)
+	    if(!GetPVarInt(i, "Playing") || GetPVarInt(i, "No_Play") || GetPVarInt(i, "AFK_In"))
 		{
-			TextDrawShowForPlayer(i,Server[ModeStartText][x]);
+			continue;
+		}
+	    
+		for(new x; x != 3; x++)
+		{
+			TextDrawShowForPlayer(i, Server[ModeStartText][x]);
 		}
 		
 		if(sec <= 4)
 		{
-			PlayerPlaySound(i,1056,0.0,0.0,0.0);
+			PlayerPlaySound(i, 1056, 0.0, 0.0, 0.0);
 		}
 	}
 	
-	return SetTimerEx("ModeCountTimer",1000,false,"d",--sec);
+	return SetTimerEx("ModeCountTimer", 1000, false, "i", --sec);
 }
+
+
 
 public StrapUpAll();
 public StrapUpAll()
 {
-	if(!GetGVarInt("Starting")) return 1;
+	if(!GetGVarInt("Starting"))
+	{
+		return 1;
+	}
 	
-	SetGVarInt("Starting",0);
-	SetGVarInt("Busy",0);
+	SetGVarInt("Starting", false);
+	SetGVarInt("Busy", false);
 	
-	if(GetOnlinePlayers() <= 1 || GetActivePlayers() <= 1)
+	if((GetOnlinePlayers() <= 1) || (GetActivePlayers() <= 1))
 	{
 		StopRound();
-		return SendClientMessageToAll(-1,"[Ошибка]: {AFAFAF}Невозможно запустить раунд: недостаточно игроков");
+		SendClientMessageToAll(-1,"[Ошибка]: {AFAFAF}Невозможно запустить раунд: недостаточно игроков");
+		
+		return 1;
 	}
 	
 	new idx,
@@ -5632,7 +5552,7 @@ public StrapUpAll()
 	        if(GetPVarInt(i,"Playing"))
 	        {
 	            SetPVarInt(i,"Playing",0);
-	            SendClientMessage(i,-1,"[Инфо]: {AFAFAF}Вы встали в AFK во время старта раунда, и были автоматически дисквалифицированны");
+	            SendClientMessage(i,-1,"[Инфо]: {AFAFAF}Вы встали в AFK во время старта раунда, и были автоматически дисквалифицированы");
 				SpawnPlayer(i);
 				continue;
 			}
@@ -5644,7 +5564,7 @@ public StrapUpAll()
 		SetPVarInt(i,"Camera_0",0);
 		SetPlayerHealth(i,200.0);
 		SetPlayerScore(i,200);
-		PlayerTextDrawSetString(i,Player[i][HealthBar],"Protected");
+		PlayerTextDrawSetString(i, Player[i][HealthBar], "Protected");
 		PlayerTextDrawShow(i,Player[i][HealthBar]);
 		SetPlayerVirtualWorld(i,Round_VW);
 		PlayerPlaySound(i,1057,0.0,0.0,0.0);
@@ -5788,34 +5708,49 @@ public StrapUpAll()
 	return SetTimer("NoProtect",5000,false);
 }
 
+
+
 public NoProtect();
 public NoProtect()
 {
 	foreach_p(i)
 	{
-	    if(!GetPVarInt(i,"Playing") || GetPVarInt(i,"No_Play")) continue;
-	    PlayerTextDrawSetString(i,Player[i][HealthBar],"HP: 100");
-    	PlayerTextDrawShow(i,Player[i][HealthBar]);
-		SetPlayerHealth(i,100.0);
-		SetPlayerScore(i,100);
+	    if(!GetPVarInt(i, "Playing") || GetPVarInt(i, "No_Play"))
+		{
+			continue;
+		}
+		
+	    PlayerTextDrawSetString(i, Player[i][HealthBar], "HP: 100");
+    	PlayerTextDrawShow(i, Player[i][HealthBar]);
+    	
+		SetPlayerHealth(i, 100.0);
+		SetPlayerScore(i, 100);
 	}
 	
 	SetGVarInt("Weap_ChangeTick",GetTickCount());
 }
 
+
+
 public NoProtectAdd(playerid);
 public NoProtectAdd(playerid)
 {
-    PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],"HP: 100");
-    PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
-	SetPlayerHealth(playerid,100.0);
-	SetPlayerScore(playerid,100);
+    PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], "HP: 100");
+    PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
+    
+	SetPlayerHealth(playerid, 100.0);
+	SetPlayerScore(playerid, 100);
 }
+
+
 
 public WideCameraRotate();
 public WideCameraRotate()
 {
-	if(!GetGVarInt("Starting") || !GetGVarInt("Busy")) return 1;
+	if(!GetGVarInt("Starting") || !GetGVarInt("Busy"))
+	{
+		return 1;
+	}
 	
 	foreach_p(i)
 	{
@@ -5855,24 +5790,20 @@ public WideCameraRotate()
 		}
 	}
 	
-	return SetTimer("WideCameraRotate",50,false);
+	return SetTimer("WideCameraRotate", 50, false);
 }
+
+
 
 public VoteCountTimer(sec);
 public VoteCountTimer(sec)
 {
 	if(Server[Current] != -1 || !GetGVarInt("Voting")) return 1;
 	
-	new
-	    string_data[64]
-	;
+	SendRconCommandF("mapname Voting... [%i sec]", sec);
 	
-	format(string_data,32,"mapname Voting [%d sec]",sec);
-	SendRconCommand(string_data);
-	
-	format(string_data,64,"Voting (%d sec)~n~/base (id)~n~/arena (id)~n~/ctf (id)",sec);
-	TextDrawSetString(Server[VoteText][0],string_data);
-	TextDrawSetString(Server[VoteText][1],vote_string);
+	TextDrawSetStringF(Server[VoteText][0], "Voting (%i sec)~n~/base (id)~n~/arena (id)~n~/ctf (id)", sec);
+	TextDrawSetString(Server[VoteText][1], vote_string);
 	
 	for(new i = 1; i != -1; --i)
 	{
@@ -5947,21 +5878,25 @@ public VoteCountTimer(sec)
 	return SetTimerEx("VoteCountTimer",1000,false,"d",--sec);
 }
 
+
+
 public HideWin();
 public HideWin()
 {
-	SetGVarInt("Busy",0);
+	SetGVarInt("Busy", false);
 	StopSoundForAll();
 	SendRconCommand("mapname Lobby");
 	
- 	for(new i = (Max_Teams - 1), x; i != -1; --i)
+ 	for(new i; i != Max_Teams; i++)
  	{
- 		for(x = 4; x != -1; --x)
+ 		for(new x; x != 5; x++)
 	 	{
 	 		TextDrawHideForAll(TeamTextDraw[i][x]);
 		}
 	}
 }
+
+
 
 public StopVote();
 public StopVote()
@@ -6006,6 +5941,8 @@ public StopVote()
 	return 1;
 }
 
+
+
 public StartMode(id, Gametype);
 public StartMode(id, Gametype)
 {
@@ -6031,8 +5968,8 @@ public StartMode(id, Gametype)
 	{
 		case Gametype_Base:
 		{
-		    format(string_data,32,"mapname Base %d starting...",id);
-		    SendRconCommand(string_data);
+		    SendRconCommandF("mapname Base %i starting...", id);
+		    
 			foreach_p(i)
 			{
 			    if(GetPVarInt(i,"No_Play") || (GetPlayerState(i) != 7 && !GetPVarInt(i,"Spawned"))) continue;
@@ -6085,7 +6022,7 @@ public StartMode(id, Gametype)
 				SetPlayerInterior(i,Base[id][Interior]);
 				SetPlayerPos(i,floatadd(Base[id][CP][0],floatrandom(10)),floatadd(Base[id][CP][1],floatrandom(10)),floatadd(Base[id][CP][2],500.0));
 				TogglePlayerControllable(i,false);
-				PlayerTextDrawSetString(i,Player[i][HealthBar],"Protected");
+				PlayerTextDrawSetString(i, Player[i][HealthBar], "Protected");
     			PlayerTextDrawShow(i,Player[i][HealthBar]);
 				SetPlayerHealth(i,200.0);
 				SetPlayerScore(i,200);
@@ -6094,8 +6031,8 @@ public StartMode(id, Gametype)
 		}
 		case Gametype_Arena:
 		{
-		    format(string_data,32,"mapname Arena %d starting...",id);
-		    SendRconCommand(string_data);
+		    SendRconCommandF("mapname Arena %i starting...", id);
+		    
 			foreach_p(i)
 			{
 			    if(GetPVarInt(i,"No_Play") || (GetPlayerState(i) != 7 && !GetPVarInt(i,"Spawned"))) continue;
@@ -6148,7 +6085,7 @@ public StartMode(id, Gametype)
 				SetPlayerInterior(i,Arena[id][Interior]);
 			    SetPlayerPos(i,floatadd(Arena[id][CP][0],floatrandom(10)),floatadd(Arena[id][CP][1],floatrandom(10)),floatadd(Arena[id][CP][2],500.0));
 			    TogglePlayerControllable(i,false);
-			    PlayerTextDrawSetString(i,Player[i][HealthBar],"Protected");
+			    PlayerTextDrawSetString(i, Player[i][HealthBar], "Protected");
     			PlayerTextDrawShow(i,Player[i][HealthBar]);
 				SetPlayerHealth(i,200.0);
 				SetPlayerScore(i,200);
@@ -6159,11 +6096,10 @@ public StartMode(id, Gametype)
 		}
 		case Gametype_CTF:
 		{
-		    format(string_data,32,"mapname CTF %d starting...",id);
-		    SendRconCommand(string_data);
+		    SendRconCommandF("mapname CTF %i starting...", id);
 		    
-		    CTF[id][FlagOwner][0] = 0xFFFF;
-		    CTF[id][FlagOwner][1] = 0xFFFF;
+		    CTF[id][FlagOwner][0] = INVALID_PLAYER_ID;
+		    CTF[id][FlagOwner][1] = INVALID_PLAYER_ID;
 		    
 		    if(IsValidObject(CTF[id][Flag][0]))
 			{
@@ -6238,7 +6174,7 @@ public StartMode(id, Gametype)
 				SetPlayerInterior(i,CTF[id][Interior]);
 			    SetPlayerPos(i,floatadd(CTF[id][CP][0],floatrandom(10)),floatadd(CTF[id][CP][1],floatrandom(10)),floatadd(CTF[id][CP][2],500.0));
 			    TogglePlayerControllable(i,false);
-			    PlayerTextDrawSetString(i,Player[i][HealthBar],"Protected");
+			    PlayerTextDrawSetString(i, Player[i][HealthBar], "Protected");
     			PlayerTextDrawShow(i,Player[i][HealthBar]);
 				SetPlayerHealth(i,200.0);
 				SetPlayerScore(i,200);
@@ -6254,28 +6190,32 @@ public StartMode(id, Gametype)
 	return CallLocalFunction("ModeCountTimer","d",GetGVarInt("Default_Counting"));
 }
 
+
+
 public LoginKick(playerid, time);
 public LoginKick(playerid, time)
 {
 	if(!GetPVarInt(playerid,"Connected") || GetPVarInt(playerid,"Logged")) return 0;
 	
-	new
-	    string_data[48]
-	;
+	new string[48];
 	
-	format(string_data,48,"Login in %d Seconds~n~Or you will be kicked",time);
-	PlayerTextDrawSetString(playerid,Player[playerid][LoginText],string_data);
+	format(string, sizeof string, "Login in %i Seconds~n~Or you will be kicked", time);
+	PlayerTextDrawSetString(playerid,Player[playerid][LoginText], string);
 	PlayerTextDrawShow(playerid,Player[playerid][LoginText]);
 	
 	if(time <= 0)
 	{
-	    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Истекло время логина в аккаунт)",Player[playerid][Name]);
-	    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)",Player[playerid][Name]);
-	    return Kick(playerid);
+	    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Истекло время логина в аккаунт)",Player[playerid][Name]);
+	    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)",Player[playerid][Name]);
+	    Kick(playerid);
+	    
+	    return 1;
 	}
 	
-	return SetTimerEx("LoginKick",1000,false,"dd",playerid,--time);
+	return SetTimerEx("LoginKick", 1000, false, "ii", playerid, --time);
 }
+
+
 
 public Marker(playerid);
 public Marker(playerid)
@@ -6288,6 +6228,8 @@ public Marker(playerid)
 	
 	return 1;
 }
+
+
 
 public GBugCheck(playerid, gWeap, gAmmo);
 public GBugCheck(playerid, gWeap, gAmmo)
@@ -6302,12 +6244,14 @@ public GBugCheck(playerid, gWeap, gAmmo)
 	
 	if(PlayerWeapons[playerid][1][i] >= gAmmo)
 	{
-	    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}У игрока {FF0000}%s {AFAFAF}подозрение на баг с гранатами",Player[playerid][Name]);
+	    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}У игрока {FF0000}%s {AFAFAF}подозрение на баг с гранатами",Player[playerid][Name]);
 	    GivePlayerWeapon(playerid,gWeap,-(PlayerWeapons[playerid][1][i]));
 	}
 	
 	return 1;
 }
+
+
 
 public CBugCheck(playerid);
 public CBugCheck(playerid)
@@ -6315,12 +6259,14 @@ public CBugCheck(playerid)
 	if(GetPlayerSpecialAction(playerid) != 1)
 	{
 	    GivePVarInt(playerid,"CBug_Ticks",1);
-	    SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игроку {FF0000}%s {AFAFAF} выдано предупреждение за использование бага +С {FFFF00}(%d/3)",Player[playerid][Name],GetPVarInt(playerid,"CBug_Ticks"));
-	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Не используй +С! {FFFF00}(Предупреждение %d/3)",GetPVarInt(playerid,"CBug_Ticks"));
-	    if(GetPVarInt(playerid,"CBug_Ticks") >= 3 && GetPVarInt(playerid,"Playing"))
+	    
+	    SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игроку {FF0000}%s {AFAFAF} выдано предупреждение за использование бага +С {FFFF00}(%i/3)",Player[playerid][Name],GetPVarInt(playerid,"CBug_Ticks"));
+	    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Не используй +С! {FFFF00}(Предупреждение %i/3)",GetPVarInt(playerid,"CBug_Ticks"));
+
+		if(GetPVarInt(playerid,"CBug_Ticks") >= 3 && GetPVarInt(playerid,"Playing"))
 	    {
 	        SetPVarInt(playerid,"CBug_Ticks",0);
-	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок %s был автоматически дисквалифицирован из раунда {FFFF00}(Причина: Использование бага +С, игнорирование предупреждений)",Player[playerid][Name]);
+	        SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок %s был автоматически дисквалифицирован из раунда {FFFF00}(Причина: Использование бага +С, игнорирование предупреждений)",Player[playerid][Name]);
 	        RemoveFromRound(playerid);
 	        return 1;
 		}
@@ -6335,6 +6281,8 @@ public CBugCheck(playerid)
 	
 	return 1;
 }
+
+
 
 public Kill(playerid, tick);
 public Kill(playerid, tick)
@@ -6370,16 +6318,22 @@ public Kill(playerid, tick)
 		case 4..19: strcat(string_data,"Multi Kill!");
 	}
 	
-	TextDrawSetString(Server[Multi],string_data);
+	TextDrawSetString(Server[Multi], string_data);
 	
 	foreach_p(i)
 	{
- 		if(!GetPVarInt(i,"Playing")) continue;
+ 		if(!GetPVarInt(i, "Playing"))
+		{
+ 			continue;
+		}
+		
    		TextDrawShowForPlayer(i,Server[Multi]);
 	}
 	
 	return 1;
 }
+
+
 
 public OnGameModeInit()
 {
@@ -6418,8 +6372,8 @@ public OnGameModeInit()
 	mysql_function_query(mysqlHandle, "SELECT * FROM `dm` WHERE 1", true, "OnDMLoad", "");
 	
 	
-	
-	advertRegex = regex_build("(((\\w+):\\/\\/)|(www\\.|\\,|))+(([\\w\\.\\,_-]{2,}(\\.|\\,)[\\w]{2,6})|(([\\d]{1,3}(\\b))(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}))(((\\s+|)(\\:|\\;|\\s)(\\s+|)[\\d\\s]{2,}(\\b))|\\b)(\\/[\\w\\&amp\\;\\%_\\.\\/\\-\\~\\-]*)?");
+	textAdvertRegex = regex_build("(((\\w+):\\/\\/)|(www\\.|\\,|))+(([\\w\\.\\,_-]{2,}(\\.|\\,)[\\w]{2,6})|(([\\d]{1,3}(\\b))(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}(\\s+|)(\\.|\\,|\\s)(\\s+|)[\\d]{1,3}))(((\\s+|)(\\:|\\;|\\s)(\\s+|)[\\d\\s]{2,}(\\b))|\\b)(\\/[\\w\\&amp\\;\\%_\\.\\/\\-\\~\\-]*)?");
+	ipAdvertRegex = regex_build("([0-9\\s]{1,})+([(/|,.)?\\s]{1,})+([0-9\\s]{1,})+([(/|,.)?\\s]{1,})+([0-9\\s]{1,})+([(/|,.)?\\s]{1,})+([0-9\\s]{1,})");
 	mailRegex = regex_build("^([a-zA-Z0-9_\\-\\.]+)@([a-zA-Z0-9_\\-\\.]+)\\.([a-zA-Z]{2,5})$");
 	nameRegex = regex_build("^[A-z0-9@=_\\[\\]\\.\\(\\)\\$]{3,24}$");
 	passwordRegex = regex_build("[ а-яА-Яa-zA-Z0-9_,!\\.\\?\\-\\+\\(\\)]+");
@@ -6439,14 +6393,23 @@ public OnGameModeInit()
 	
 	
 	GetServerVarAsString("bind", string, sizeof string);
-	socketHandle = _:socket_create(UDP);
+	querySocketHandle = _:socket_create(UDP);
+	addonSocketHandle = _:socket_create(TCP);
 	
 	if(!isnull(string))
 	{
-	    socket_bind(Socket:socketHandle, string);
+	    //socket_bind(Socket:querySocketHandle, "127.0.0.2");
+	    socket_bind(Socket:addonSocketHandle, string);
 	}
 	
-	socket_listen(Socket:socketHandle, GetServerVarAsInt("port") + 1);
+	socket_set_max_connections(Socket:addonSocketHandle, MAX_PLAYERS);
+	
+	socket_listen(Socket:querySocketHandle, GetServerVarAsInt("port") + 1);
+	socket_listen(Socket:addonSocketHandle, GetServerVarAsInt("port") + 1);
+	
+	new Socket:tmp = socket_create(UDP);
+	socket_connect(tmp, "127.0.0.1", 7778);
+	socket_send(tmp, "SAMPQUERY MAXPLAYERS", 20);
 	
 	
 	
@@ -6454,7 +6417,7 @@ public OnGameModeInit()
 	
 	
 	
-	SetTimer("ServerProcessor",1000,true);
+	SetTimer("ServerProcessor", 1000, true);
 	
 	if(GetGVarInt("TimeSync"))
 	{
@@ -6481,6 +6444,7 @@ public OnGameModeInit()
 	ShowPlayerMarkers(2);
 	EnableStuntBonusForAll(false);
 	SetTeamCount(MAX_PLAYERS);
+	EnableVehicleFriendlyFire();
 
 	new
 		Float:X = GetGVarFloat("Lobby_Pos",0),
@@ -6494,6 +6458,8 @@ public OnGameModeInit()
 	
 	return 1;
 }
+
+
 
 CreateObjects()
 {
@@ -6805,12 +6771,254 @@ CreateObjects()
 	CreateObject(3534,2323.677,1283.234,89.550,0.0,0.0,0.0);
 }
 
+
+
 public OnGameModeExit()
 {
 	CallLocalFunction("ExitGameMode","");
 	
 	return 1;
 }
+
+
+
+public OnDNS(host[], ip[], extra)
+{
+	return 1;
+}
+
+
+
+public OnReverseDNS(ip[], host[], extra)
+{
+	if(!strcmp(ip, host, false))
+	{
+	    printf("Error while retrieving host for IP %s", ip);
+
+	    return 1;
+	}
+
+	if(GetPVarInt(extra, "Connected"))
+	{
+	    SetPVarString(extra, "dns", host);
+	}
+
+	return 1;
+}
+
+
+
+public onUDPReceiveData(Socket:id, data[], data_len, remote_client_ip[], remote_client_port)
+{
+	if(data_len > 64)
+	{
+	    return 1;
+	}
+	
+	printf("Received from %s:%i --- %s", remote_client_ip, remote_client_port, data);
+	
+	new check[32];
+	new type[32];
+	
+	sparam(check, sizeof check, data, ' ', 0);
+	
+	if(strcmp(check, "SAMPQUERY", false))
+	{
+	    return 1;
+	}
+	
+	sparam(type, sizeof type, data, ' ', 1, 1);
+	
+	if(!strcmp(type, "HOSTNAME"))
+	{
+	    new packet[256];
+	    
+	    GetServerVarAsString("hostname", packet, sizeof packet);
+	    strins(packet, "SAMPQUERY HOSTNAME ", 0);
+	    socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+	    
+	    return 1;
+	}
+	else if(!strcmp(type, "MAPNAME"))
+	{
+	    new packet[64];
+	    
+	    GetServerVarAsString("mapname", packet, sizeof packet);
+	    strins(packet, "SAMPQUERY MAPNAME ", 0);
+	    socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+	    
+	    return 1;
+	}
+	else if(!strcmp(type, "MODENAME"))
+	{
+	    new packet[64];
+	    
+	    GetServerVarAsString("gamemodetext", packet, sizeof packet);
+	    strins(packet, "SAMPQUERY MODENAME ", 0);
+	    socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+
+	    return 1;
+	}
+	else if(!strcmp(type, "GRAVITY"))
+	{
+	    new packet[48];
+	    
+	    GetServerVarAsString("gravity", packet, sizeof packet);
+	    format(packet, sizeof packet, "SAMPQUERY GRAVITY %f", floatstr(packet));
+	    socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+
+	    return 1;
+	}
+	else if(!strcmp(type, "MAXPLAYERS"))
+	{
+	    new packet[32];
+	    
+		format(packet, sizeof packet, "SAMPQUERY MAXPLAYERS %i", GetMaxPlayers());
+		socket_connect(id, remote_client_ip, remote_client_port);
+		socket_send(id, packet, strlen(packet));
+		
+		return 1;
+	}
+	else if(!strcmp(type, "ONLINEPLAYERS"))
+	{
+	    new packet[48];
+	    
+	    format(packet, sizeof packet, "SAMPQUERY ONLINEPLAYERS %i", GetOnlinePlayers());
+	    socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+	    
+	    return 1;
+	}
+	else if(!strcmp(type, "PLAYERLIST"))
+	{
+	    new packet[(MAX_PLAYERS * MAX_PLAYER_NAME) + 32];
+	    
+		foreach_p(i)
+		{
+			strcat(packet, "\n");
+		    strcat(packet, Player[i][Name]);
+		}
+		
+		format(packet, sizeof packet, "SAMPQUERY PLAYERLIST %s", packet);
+		socket_connect(id, remote_client_ip, remote_client_port);
+		socket_send(id, packet, strlen(packet));
+		
+		return 1;
+	}
+	else if(!strfind(type, "PLAYERID"))
+	{
+	    new playerid;
+	    new player_name[24];
+	    
+	    sparam(player_name, sizeof player_name, data, ' ', 2, 1);
+	    
+	    if(isnull(player_name))
+	    {
+	        return 1;
+		}
+		
+		foreach_p(i)
+		{
+		    if(!strcmp(player_name, Player[i][Name], false))
+		    {
+		        playerid = i;
+		        
+		        break;
+			}
+		}
+		
+		new packet[32];
+		
+		format(packet, sizeof packet, "SAMPQUERY PLAYERID %s %i", player_name, playerid);
+		socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+
+	    return 1;
+	}
+	else if(!strfind(type, "PLAYERNAME"))
+	{
+	    new playerid = iparam(data, ' ', 2);
+	    
+	    if(!GetPVarInt(playerid, "Connected"))
+	    {
+	        return 1;
+		}
+		
+		new packet[64];
+		
+		format(packet, sizeof packet, "SAMPQUERY PLAYERNAME %i %s", playerid, Player[playerid][Name]);
+		socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+
+	    return 1;
+	}
+	else if(!strfind(type, "PLAYERPING"))
+	{
+	    new playerid = iparam(data, ' ', 2);
+	    
+	    if(!GetPVarInt(playerid, "Connected"))
+	    {
+	        return 1;
+		}
+		
+		new packet[48];
+		
+		format(packet, sizeof packet, "SAMPQUERY PLAYERPING %i %i", playerid, GetPlayerPing(playerid));
+		socket_bind(id, "127.0.0.1");
+		socket_connect(id, remote_client_ip, remote_client_port);
+		socket_send(id, packet, strlen(packet));
+		
+		return 1;
+	}
+	else if(!strfind(type, "PLAYERSCORE"))
+	{
+	    new playerid = iparam(data, ' ', 2);
+	    
+	    if(!GetPVarInt(playerid, "Connected"))
+	    {
+	        return 1;
+		}
+		
+		new packet[48];
+		
+		format(packet, sizeof packet, "SAMPQUERY PLAYERSCORE %i %i", playerid, GetPlayerScore(playerid));
+		socket_connect(id, remote_client_ip, remote_client_port);
+	    socket_send(id, packet, strlen(packet));
+
+	    return 1;
+	}
+	
+	return 1;
+}
+
+
+
+public onSocketReceiveData(Socket:id, remote_clientid, data[], data_len)
+{
+	printf("Incoming TCP data from %i --- %s", remote_clientid, data);
+	
+	return 1;
+}
+
+
+
+public OnMailSendSuccess(index, to[], subject[], message[], type)
+{
+	return 1;
+}
+
+
+
+public OnMailSendError(index, to[], subject[], message[], type, error[], error_code)
+{
+	return 1;
+}
+
+
 
 public OnVehicleStreamIn(vehicleid, forplayerid)
 {
@@ -6829,6 +7037,8 @@ public OnVehicleStreamIn(vehicleid, forplayerid)
 	return 1;
 }
 
+
+
 public OnVehicleStreamOut(vehicleid, forplayerid)
 {
 	if(Server[Current] != -1 && GetGVarInt("GameType") == Gametype_Base)
@@ -6838,6 +7048,8 @@ public OnVehicleStreamOut(vehicleid, forplayerid)
 	
 	return 1;
 }
+
+
 
 public OnPlayerConnect(playerid)
 {
@@ -6852,6 +7064,7 @@ public OnPlayerConnect(playerid)
     ResetPlayerVars(playerid);
     cvector_push_back(playersVector, playerid);
 	
+	
     if(IsPlayerNPC(playerid))
 	{
 		Kick(playerid);
@@ -6864,12 +7077,12 @@ public OnPlayerConnect(playerid)
     GetPlayerName(playerid, Player[playerid][Name], MAX_PLAYER_NAME);
     mysql_real_escape_string(Player[playerid][Name], Player[playerid][Name], mysqlHandle, MAX_PLAYER_NAME);
     
-    if(!regex_match_exid(Player[playerid][Name], nameRegex))
+    /*if(!regex_match_exid(Player[playerid][Name], nameRegex))
 	{
 	    Kick(playerid);
 	    
 	    return 1;
-	}
+	}*/
     
     if(!strfind(Player[playerid][Name], "AFK_", false))
 	{
@@ -6920,7 +7133,9 @@ public OnPlayerConnect(playerid)
 	    SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Сервер закрыт! {FF0000}(Кик) {FFFF00}| {FFFFFF}[Info]: {AFAFAF}Server locked! {FF0000}(Kick)");
 	    Kick(playerid);
 	    
-	    return SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}попытался зайти на закрытый сервер и был кикнут", Player[playerid][Name]);
+	    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}попытался зайти на закрытый сервер и был кикнут", Player[playerid][Name]);
+	    
+	    return 1;
 	}
 	
 
@@ -6937,16 +7152,17 @@ public OnPlayerConnect(playerid)
 	strcpy(playerIP, Player[playerid][IP]);
 	strdel(playerIP, strfind(playerIP, ".", false, 4), strlen(playerIP));
 	strcat(playerSerial, playerIP);
-	SHA512(playerSerial, playerSerial, sizeof playerSerial);
 	
-	SendClientMessage(playerid, -1, playerSerial);
 	
 	
 	new query[192];
 	
-	mysql_format(mysqlHandle, query, sizeof query, "SELECT * FROM `banlist` WHERE `serial` = '%e' LIMIT 1", playerSerial);
+	mysql_format(mysqlHandle, query, sizeof query, "SELECT * FROM `banlist` WHERE `serial` = SHA2('%s', 512) LIMIT 1", playerSerial);
     mysql_function_query(mysqlHandle, query, true, "OnPlayerBanCheck", "i", playerid);
     
+    PlayAudioStreamForPlayer(playerid, "http://127.0.0.1/intro.mp3");
+	SetPVarInt(playerid, "audio_play", true);
+	
 	CreatePlayerTextDraws(playerid);
 	
 	for(new i = 74; i != -1; --i)
@@ -6967,22 +7183,22 @@ public OnPlayerConnect(playerid)
 		SendClientMessage(playerid, -1, "\0");
 	}
 	
-	SendClientMessage(playerid,-1, "[Инфо]: {AFAFAF}Настройки сервера:");
-	SendClientMessage(playerid,-1, "\0");
-	SendClientMessage(playerid,-1, "[Инфо]: {FFFF00}onfoot_rate: %d", GetServerVarAsInt("onfoot_rate"));
-	SendClientMessage(playerid,-1, "[Инфо]: {FFFF00}incar_rate: %d", GetServerVarAsInt("incar_rate"));
-	SendClientMessage(playerid,-1, "[Инфо]: {FFFF00}weapon_rate: %d", GetServerVarAsInt("weapon_rate"));
-	SendClientMessage(playerid,-1, "[Инфо]: {FFFF00}stream_rate: %d", GetServerVarAsInt("stream_rate"));
-	SendClientMessage(playerid,-1, "\0");
-	SendClientMessage(playerid,-1, "[Инфо]: {FFFF00}/cmd {AFAFAF}- основные комманды {FFFFFF}| {FFFF00}/help {AFAFAF}- помощь по моду");
-	SendClientMessage(playerid,-1, "[Инфо]: {AFAFAF}На сервере стоит антибаг на {FF0000}+C, Slide, Knife Bug, Grenade Bug");
-	SendClientMessage(playerid,-1, "[Инфо]: {AFAFAF}Опробуйте новый игровой режим: {FF0000}CTF (Capture The Flag, захват флага)");
-	SendClientMessage(playerid,-1, "\0");
+	SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Настройки сервера:");
+	SendClientMessage(playerid, -1, "\0");
+	SendClientMessageF(playerid, -1, "[Инфо]: {FFFF00}onfoot_rate: %i", GetServerVarAsInt("onfoot_rate"));
+	SendClientMessageF(playerid, -1, "[Инфо]: {FFFF00}incar_rate: %i", GetServerVarAsInt("incar_rate"));
+	SendClientMessageF(playerid, -1, "[Инфо]: {FFFF00}weapon_rate: %i", GetServerVarAsInt("weapon_rate"));
+	SendClientMessageF(playerid, -1, "[Инфо]: {FFFF00}stream_rate: %i", GetServerVarAsInt("stream_rate"));
+	SendClientMessage(playerid, -1, "\0");
+	SendClientMessage(playerid, -1, "[Инфо]: {FFFF00}/cmd {AFAFAF}- основные комманды {FFFFFF}| {FFFF00}/help {AFAFAF}- помощь по моду");
+	SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}На сервере стоит антибаг на {FF0000}+C, Slide, Knife Bug, Grenade Bug");
+	SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Опробуйте новый игровой режим: {FF0000}CTF (Capture The Flag, захват флага)");
+	SendClientMessage(playerid, -1, "\0");
 	
 	if(strcmp(playerClient, samp_current_version, false))
 	{
-		SendClientMessage(playerid, -1,"[Инфо]: {AFAFAF}Ваша версия клиента {FF0000}(%s) {AFAFAF}устарела", playerClient);
-		SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Установите новую версию клиента {FF0000}(%s) {AFAFAF}для более комфортной игры", samp_current_version);
+		SendClientMessageF(playerid, -1, "[Инфо]: {AFAFAF}Ваша версия клиента {FF0000}(%s) {AFAFAF}устарела", playerClient);
+		SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Установите новую версию клиента {FF0000}" #samp_current_version " {AFAFAF}для более комфортной игры");
 	}
 	
 	TogglePlayerSpectating(playerid, true);
@@ -6991,16 +7207,38 @@ public OnPlayerConnect(playerid)
 	return 1;
 }
 
+
+
+public Audio_OnClientConnect(playerid)
+{
+	if(!IsPlayerConnected(playerid))
+	{
+	    printf("Audio: Client %i connected before in-game join, or player already disconnected", playerid);
+	    
+	    return 1;
+	}
+
+    Audio_TransferPack(playerid);
+
+	return 1;
+}
+
+
+
 public OnPlayerDisconnect(playerid, reason)
 {
 	Player[playerid][pConnect] = false;
-	SetPVarInt(playerid,"Connected",0);
-	Update3DTextLabelText(Player[playerid][AtHead],-1," ");
+	SetPVarInt(playerid, "Connected", false);
+	Update3DTextLabelText(Player[playerid][AtHead], -1, " ");
     DestroyPlayerTextDraws(playerid);
     
 	foreach_p(i)
 	{
-		if(i == playerid || GetPVarInt(i,"SpecID") != playerid) continue;
+		if((i == playerid) || (GetPVarInt(i, "SpecID") != playerid))
+		{
+			continue;
+		}
+		
 		AdvanceSpectate(i);
 	}
 	
@@ -7009,24 +7247,25 @@ public OnPlayerDisconnect(playerid, reason)
 		StopSpectate(playerid);
 	}
 	
-	if(!strfind(Player[playerid][Name],"AFK_",false))
+	if(!strfind(Player[playerid][Name], "AFK_", false))
 	{
-		strdel(Player[playerid][Name],0,4);
-		SetPlayerName(playerid,Player[playerid][Name]);
+		strdel(Player[playerid][Name], 0, 4);
+		SetPlayerName(playerid, Player[playerid][Name]);
 	}
 	
-	if(Server[Current] != -1 && GetPVarInt(playerid,"Playing"))
+	if((Server[Current] != -1) && GetPVarInt(playerid, "Playing"))
 	{
 	    switch(reason)
 	    {
 	        case 0:
 			{
-				SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Обрыв связи) {FFFF00}[Здоровье: %.1f]",Player[playerid][Name],GetPVarFloat(playerid,"LastHealth"));
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Обрыв связи) {FFFF00}[Здоровье: %.1f]", Player[playerid][Name], GetPVarFloat(playerid, "LastHealth"));
 			}
+			
 	        case 1:
 			{
-				SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Выход) {FFFF00}[Здоровье: %.1f]",Player[playerid][Name],GetPVarFloat(playerid,"LastHealth"));
-				GivePVarInt(playerid,"RunsFromRound",1);
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Выход) {FFFF00}[Здоровье: %.1f]", Player[playerid][Name], GetPVarFloat(playerid, "LastHealth"));
+				GivePVarInt(playerid, "RunsFromRound", 1);
 			}
 		}
 		
@@ -7036,6 +7275,7 @@ public OnPlayerDisconnect(playerid, reason)
 		        Float:float_data[3]
 			;
 			GetPlayerPos(playerid,float_data[0],float_data[1],float_data[2]);
+			
 		    switch(GetPVarInt(playerid,"Team"))
 		    {
 		        case Team_Attack:
@@ -7081,28 +7321,29 @@ public OnPlayerDisconnect(playerid, reason)
 	    {
 	        case 0:
 			{
-				SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Обрыв связи)",Player[playerid][Name]);
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Обрыв связи)", Player[playerid][Name]);
 			}
+			
 	        case 1:
 			{
-				SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Выход)",Player[playerid][Name]);
+				SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Выход)", Player[playerid][Name]);
 			}
 		}
 	}
 	
-	if(GetPVarInt(playerid,"Logged"))
+	if(GetPVarInt(playerid, "Logged"))
 	{
-		CallLocalFunction("OnPlayerSaved","d",playerid);
+		CallLocalFunction("OnPlayerSaved", "i", playerid);
 	}
 	
-	if(GetGVarInt("VoteKick_Voted",playerid))
+	if(GetGVarInt("VoteKick_Voted", playerid))
 	{
-		GiveGVarInt("VoteKick_Votes",-1,0);
+		GiveGVarInt("VoteKick_Votes", -1, 0);
 	}
 	
-	if(GetGVarInt("VoteBan_Voted",playerid))
+	if(GetGVarInt("VoteBan_Voted", playerid))
 	{
-		GiveGVarInt("VoteBan_Votes",-1,0);
+		GiveGVarInt("VoteBan_Votes", -1, 0);
 	}
 	
 	if(playerid == GetGVarInt("VoteKick_ID"))
@@ -7118,10 +7359,84 @@ public OnPlayerDisconnect(playerid, reason)
 	Player[playerid][Name][0] = 0;
 	Player[playerid][IP][0] = 0;
 	
-	cvector_remove(playersVector, cvector_find(playersVector, playerid));
+	playerid = cvector_find(playersVector, playerid);
+	
+	if(playerid != -1)
+	{
+		cvector_remove(playersVector, playerid);
+	}
 	
 	return 1;
 }
+
+
+
+public Audio_OnClientDisconnect(playerid)
+{
+	DeletePVar(playerid, "audio_play");
+
+	if(IsPlayerConnected(playerid))
+	{
+	    printf("Audio: Client %i disconnected before in-game leave", playerid);
+	    
+	    return 1;
+	}
+
+	return 1;
+}
+
+
+
+public Audio_OnTransferFile(playerid, file[], current, total, result)
+{
+	if(current == total)
+	{
+	    SetPVarInt(playerid, "audio_ready", true);
+	}
+
+	return 1;
+}
+
+
+
+public Audio_OnPlay(playerid, handleid)
+{
+	SetPVarInt(playerid, "audio_play", true);
+
+	return 1;
+}
+
+
+
+public Audio_OnStop(playerid, handleid)
+{
+	DeletePVar(playerid, "audio_play");
+
+	return 1;
+}
+
+
+
+public Audio_OnTrackChange(playerid, handleid, track[])
+{
+	return 1;
+}
+
+
+
+public Audio_OnRadioStationChange(playerid, station)
+{
+	return 1;
+}
+
+
+
+public Audio_OnGetPosition(playerid, handleid, seconds)
+{
+	return 1;
+}
+
+
 
 public OnPlayerText(playerid, text[])
 {
@@ -7131,10 +7446,14 @@ public OnPlayerText(playerid, text[])
 		
 		if(GetPVarInt(playerid, "Flooder") > 10)
 		{
-			return mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Флуд-атакер (флуд в чат)", "AntiFlood");
+			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Флуд-атакер (флуд в чат)", "AntiFlood");
+			
+			return 1;
 		}
 		
-		return (SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Хорош флудить!") - 1);
+		SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Хорош флудить!");
+		
+		return 0;
 	}
 	
 	SetPVarInt(playerid, "Text_Time", GetTickCount());
@@ -7144,20 +7463,38 @@ public OnPlayerText(playerid, text[])
 	{
 	    return 0;
 	}
+	
+	if(strlen(text) > 128)
+	{
+	    mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Длина текста превышает лимит", "AntiHack");
+	    
+	    return 0;
+	}
 
-	if(emptyMessage(text)) return (SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Отправка пустых сообщений запрещена") - 1);
+	if(emptyMessage(text))
+	{
+		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Отправка пустых сообщений запрещена");
+		
+		return 0;
+	}
 
     spaceGroupsToSpaces(text);
     trimSideSpaces(text);
 
-    if(tooManyUpperChars(text)) return (SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Отключи CAPS LOCK!") - 1);
+    if(tooManyUpperChars(text))
+	{
+		SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Отключи CAPS LOCK!");
+		
+		return 0;
+	}
 	
 	if(!strfind(Player[playerid][Name], "AFK_", false))
 	{
 		strdel(Player[playerid][Name], 0, 4);
 	}
 	
-	regex_replace_exid(text, advertRegex, "{FF0000}РЕКЛАМА", text, strlen(text));
+	regex_replace_exid(text, textAdvertRegex, "{FF0000}РЕКЛАМА", text, 128);
+	regex_replace_exid(text, ipAdvertRegex, "{FF0000}РЕКЛАМА", text, 128);
 	
 	if(((text[0] == '#') || (text[0] == '№')) && !isnull(text[1]) && !emptyMessage(text[1]) && (GetPVarInt(playerid,"Admin") > 0))
 	{
@@ -7168,7 +7505,7 @@ public OnPlayerText(playerid, text[])
 				continue;
 			}
 			
-	        SendClientMessage(i, -1, "[Админ-чат]: {FF0000}%s {AFAFAF}[%d]: {FFFFFF}%s", Player[playerid][Name], playerid, text[1]);
+	        SendClientMessageF(i, -1, "[Админ-чат]: {FF0000}%s {AFAFAF}[%i]: {FFFFFF}%s", Player[playerid][Name], playerid, text[1]);
 		}
 		
 		return 0;
@@ -7187,21 +7524,30 @@ public OnPlayerText(playerid, text[])
 						continue;
 					}
 					
-				    SendClientMessage(i, GetPlayerColor(playerid), "[Комманда] %s {FFFF00}[%d]: {AFAFAF}%s", Player[playerid][Name], playerid, text[1]);
+				    SendClientMessageF(i, GetPlayerColor(playerid), "[Комманда] %s {FFFF00}[%i]: {AFAFAF}%s", Player[playerid][Name], playerid, text[1]);
 				}
 				
 				return 0;
 			}
-			default: return (SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Вы не в комманде!") - 1);
+			default:
+			{
+				SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Вы не в комманде!");
+				
+				return 0;
+			}
 		}
 	}
 	
-	if(GetPVarInt(playerid,"Muted"))
+	if(GetPVarInt(playerid, "Muted"))
 	{
-		return (SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы заткнуты") - 1);
+		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Вы заткнуты");
+		
+		return 0;
 	}
 
-	return (SendClientMessageToAll(GetPlayerColor(playerid), "%s {FFFF00}[%d]: {FFFFFF}%s", Player[playerid][Name], playerid, text) - 1);
+	SendClientMessageToAllF(GetPlayerColor(playerid), "%s {FFFF00}[%i]: {FFFFFF}%s", Player[playerid][Name], playerid, text);
+	
+	return 0;
 }
 
 
@@ -7228,7 +7574,7 @@ public OnPlayerUpdate(playerid)
 		
 		if(!IsPlane(model) && !IsHelicopter(model) && (GetPlayerSpeedXY(playerid) > 250.0) && (GetPlayerState(playerid) == 2))
 		{
-		    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Спидхак)", Player[playerid][Name]);
+		    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Спидхак)", Player[playerid][Name]);
 		    return mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Спидхак", "AntiCheat");
 		}
 		
@@ -7241,12 +7587,12 @@ public OnPlayerUpdate(playerid)
 		
 		new string[96];
 		
-		format(string, sizeof string, "~r~~h~~h~%s~n~~r~~h~Speed: %.1f KM/H~n~~r~Health: %d", CarList[model], GetPlayerSpeedXY(playerid), floatmul(floatdiv(floatsub(ReturnVehicleHealth(vID), 250.0), 750.0), 100.0));
+		format(string, sizeof string, "~r~~h~~h~%s~n~~r~~h~Speed: %.1f KM/H~n~~r~Health: %i", CarList[model], GetPlayerSpeedXY(playerid), floatmul(floatdiv(floatsub(ReturnVehicleHealth(vID), 250.0), 750.0), 100.0));
 		PlayerTextDrawSetString(playerid, Player[playerid][Speedometer], string);
-		PlayerTextDrawShow(playerid,Player[playerid][Speedometer]);
+		PlayerTextDrawShow(playerid, Player[playerid][Speedometer]);
 		
-		TextDrawShowForPlayer(playerid,Server[Barrier][3]);
-		TextDrawShowForPlayer(playerid,Server[Barrier][4]);
+		TextDrawShowForPlayer(playerid, Server[Barrier][3]);
+		TextDrawShowForPlayer(playerid, Server[Barrier][4]);
 	}
 	else
 	{
@@ -7305,6 +7651,8 @@ public OnPlayerUpdate(playerid)
 	return 1;
 }
 
+
+
 public OnPlayerClickPlayer(playerid, clickedplayerid, source)
 {
 	switch(source)
@@ -7318,45 +7666,63 @@ public OnPlayerClickPlayer(playerid, clickedplayerid, source)
 	        SetPVarInt(playerid,"CMD_Time",(GetTickCount() - 2501));
 	        if(playerid == clickedplayerid) return CallLocalFunction("cmd_mystats","ds",playerid,"\1");
 	        valstr(int_data,clickedplayerid);
-			return CallLocalFunction("cmd_spec","ds",playerid,int_data);
+			return CallLocalFunction("_spec","ds",playerid,int_data);
 		}
 	}
 	return 1;
 }
 
+
+
 public OnPlayerRequestClass(playerid, classid)
 {
-    if(!GetPVarInt(playerid,"Logged")) return 1;
+    if(!GetPVarInt(playerid, "Logged"))
+	{
+		return 1;
+	}
     
 	switch(classid)
 	{
 	    case 0:
 	    {
-	        PlayerTextDrawSetString(playerid,Player[playerid][TeamText],"~l~>> ~r~~h~Attack ~l~<<     ~b~Defend     ~y~Refferee");
-			PlayerTextDrawShow(playerid,Player[playerid][TeamText]);
-			PlayerPlaySound(playerid,33611,0.0,0.0,0.0);
+	        PlayerTextDrawSetString(playerid, Player[playerid][TeamText], "~l~>> ~r~~h~Attack ~l~<<     ~b~Defend     ~y~Refferee");
+			PlayerTextDrawShow(playerid, Player[playerid][TeamText]);
+			PlayerPlaySound(playerid, 33611, 0.0, 0.0, 0.0);
 		}
 		case 1:
 		{
-		    PlayerTextDrawSetString(playerid,Player[playerid][TeamText],"~r~Attack     ~l~>> ~b~~h~Defend ~l~<<     ~y~Refferee");
-			PlayerTextDrawShow(playerid,Player[playerid][TeamText]);
-			PlayerPlaySound(playerid,35819,0.0,0.0,0.0);
+		    PlayerTextDrawSetString(playerid, Player[playerid][TeamText], "~r~Attack     ~l~>> ~b~~h~Defend ~l~<<     ~y~Refferee");
+			PlayerTextDrawShow(playerid, Player[playerid][TeamText]);
+			PlayerPlaySound(playerid, 35819, 0.0, 0.0, 0.0);
 		}
 		case 2:
 		{
-		    PlayerTextDrawSetString(playerid,Player[playerid][TeamText],"~r~Attack     ~b~Defend     ~l~>> ~y~~h~Refferee ~l~<<");
-			PlayerTextDrawShow(playerid,Player[playerid][TeamText]);
-			PlayerPlaySound(playerid,35202,0.0,0.0,0.0);
+		    PlayerTextDrawSetString(playerid, Player[playerid][TeamText], "~r~Attack     ~b~Defend     ~l~>> ~y~~h~Refferee ~l~<<");
+			PlayerTextDrawShow(playerid, Player[playerid][TeamText]);
+			PlayerPlaySound(playerid, 35202, 0.0, 0.0, 0.0);
 		}
 	}
 	
 	return 1;
 }
 
+
+
 public OnPlayerRequestSpawn(playerid)
 {
-    if(GetPVarInt(playerid,"Camera_0")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете заспавниться во время показа интро") - 1;
-	if(!GetPVarInt(playerid,"Logged")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Сначала войдите в аккаунт!") - 1;
+    if(GetPVarInt(playerid, "Camera_0"))
+	{
+		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Вы не можете заспавниться во время показа интро");
+		
+		return 0;
+	}
+	
+	if(!GetPVarInt(playerid, "Logged"))
+	{
+		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Сначала войдите в аккаунт!");
+		
+		return 0;
+	}
 
 	TeamFix(playerid);
 	
@@ -7365,8 +7731,17 @@ public OnPlayerRequestSpawn(playerid)
 	PlayerTextDrawHide(playerid,Player[playerid][TeamText]);
 	PlayerTextDrawHide(playerid,Player[playerid][Dot]);
 	
+	if(GetPVarInt(playerid, "audio_play"))
+	{
+	    StopAudioStreamForPlayer(playerid);
+	    
+	    DeletePVar(playerid, "audio_play");
+	}
+	
 	return 1;
 }
+
+
 
 public OnVehicleSpawn(vehicleid)
 {
@@ -7375,22 +7750,35 @@ public OnVehicleSpawn(vehicleid)
 		DestroyVehicle(vehicleid);
 	}
 	
+	cvector_push_back(vehiclesVector, vehicleid);
+	
 	return 1;
 }
+
+
 
 public OnVehicleDeath(vehicleid, killerid)
 {
 	DestroyVehicleEx(vehicleid);
 	
+	vehicleid = cvector_find(vehiclesVector, vehicleid);
+
+	if(vehicleid != -1)
+	{
+	    cvector_remove(vehiclesVector, vehicleid);
+	}
+	
 	return 1;
 }
+
+
 
 public OnVehicleMod(playerid, vehicleid, componentid)
 {
 	if(!GetPlayerInterior(playerid) && (GetPlayerState(playerid) == 2))
 	{
 	    RemoveVehicleComponent(vehicleid, componentid);
-	    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Крашер)", Player[playerid][Name]);
+	    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Крашер)", Player[playerid][Name]);
 	    mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Крашер", "AntiHack");
 	    
 	    return 0;
@@ -7398,6 +7786,8 @@ public OnVehicleMod(playerid, vehicleid, componentid)
 	
 	return 1;
 }
+
+
 
 public OnPlayerExitVehicle(playerid, vehicleid)
 {
@@ -7408,6 +7798,8 @@ public OnPlayerExitVehicle(playerid, vehicleid)
 	
 	return 1;
 }
+
+
 
 public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
 {
@@ -7420,11 +7812,13 @@ public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
 	return 1;
 }
 
+
+
 public OnPlayerStateChange(playerid, newstate, oldstate)
 {
 	switch(newstate)
 	{
-	    case 2:
+	    case PLAYER_STATE_DRIVER:
 	    {
 	        new seat = GetPlayerVehicleSeat(playerid);
 	        
@@ -7448,6 +7842,11 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 					
 					return 1;
 				}
+			}
+			
+			if(GetPVarInt(playerid, "audio_play"))
+	        {
+	            Audio_StopRadio(playerid);
 			}
 			
 	        foreach_p(i)
@@ -7475,7 +7874,7 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 			}
 		}
 		
-		case 3:
+		case PLAYER_STATE_PASSENGER:
 		{
 		    new model = GetVehicleModel(GetPlayerVehicleID(playerid));
 		    
@@ -7510,6 +7909,11 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 				}
 			}
 			
+			if(GetPVarInt(playerid, "audio_play"))
+	        {
+	            Audio_StopRadio(playerid);
+			}
+			
 		    foreach_p(i)
 		    {
 		        if(GetPVarInt(i, "SpecID") != playerid)
@@ -7524,7 +7928,7 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 			}
 		}
 		
-		case 1:
+		case PLAYER_STATE_ONFOOT:
 		{
 		    foreach_p(i)
 		    {
@@ -7543,11 +7947,11 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 	
 	switch(oldstate)
 	{
-	    case 2:
+	    case PLAYER_STATE_DRIVER:
 	    {
 	        if((GetTickCount() - GetPVarInt(playerid, "MassCarSpawn")) <= 250)
 	        {
-	            SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: CarSpawn)", Player[playerid][Name]);
+	            SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: CarSpawn)", Player[playerid][Name]);
 				mysql_ban(playerid, INVALID_PLAYER_ID, -1, "CarSpawn", "AntiHack");
 				
 				return 1;
@@ -7557,9 +7961,9 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 	
 	if(GetGVarInt("AntiCheat_Load"))
 	{
-	    if(((newstate == 2) && (oldstate == 3)) || ((newstate == 3) && (oldstate == 2)))
+	    if(((newstate == PLAYER_STATE_DRIVER) && (oldstate == PLAYER_STATE_PASSENGER)) || ((newstate == PLAYER_STATE_PASSENGER) && (oldstate == PLAYER_STATE_DRIVER)))
 	    {
-	        SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Cleo Loading)", Player[playerid][Name]);
+	        SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Cleo Loading)", Player[playerid][Name]);
 			mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Cleo Loading", "AntiHack");
 			
 			return 1;
@@ -7568,6 +7972,8 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 	
 	return 1;
 }
+
+
 
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 {
@@ -7611,7 +8017,7 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 	    foreach_p(i)
 	    {
 	        if(GetPVarInt(i,"Team") != GetPVarInt(playerid,"Team") || !GetPVarInt(i,"Playing")) continue;
-	        SendClientMessage(i,GetPlayerColor(playerid),"[Команда] {00FF40}%s: {FFFF00}%s",Player[playerid][Name],string_data);
+	        SendClientMessageF(i,GetPlayerColor(playerid),"[Команда] {00FF40}%s: {FFFF00}%s",Player[playerid][Name],string_data);
             PlayerPlaySound(i,1083,0,0,0);
 			if(i == playerid) continue;
 	        SetPlayerMarkerForPlayer(i,playerid,0xAFAFAFFF);
@@ -7639,6 +8045,8 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 	
 	return 1;
 }
+
+
 
 public OnPlayerPickUpPickup(playerid, pickupid)
 {
@@ -7706,6 +8114,8 @@ public OnPlayerPickUpPickup(playerid, pickupid)
 	return 1;
 }
 
+
+
 public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid)
 {
 	if(GetPVarInt(playerid,"Killed"))
@@ -7714,66 +8124,86 @@ public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid)
 	    return 1;
 	}
 	
-	new
-	    string_data[128],
-	    Float:float_data
-	;
+	new string[128];
+	new Float:health;
 	
-    GivePVarFloat(playerid,"HP_Combo",amount);
+    GivePVarFloat(playerid, "HP_Combo", amount);
 
-	float_data = floatabs(floatsub(ReturnPlayerHealth(playerid), amount));
-	SetPVarFloat(playerid,"LastHealth",float_data);
-	if(GetPVarInt(playerid,"Playing"))
+	health = floatabs(floatsub(ReturnPlayerHealth(playerid), amount));
+	SetPVarFloat(playerid, "LastHealth", health);
+	
+	if(GetPVarInt(playerid, "Playing"))
 	{
-		SetPlayerScore(playerid,floatround(float_data));
+		SetPlayerScore(playerid, floatround(health));
 	}
 	
-	format(string_data,32,"~r~~h~-%.0f~n~~r~Health: %.0f",GetPVarFloat(playerid,"HP_Combo"),float_data);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthMinus],string_data);
-	PlayerTextDrawShow(playerid,Player[playerid][HealthMinus]);
+	format(string, sizeof string, "~r~~h~-%.0f~n~~r~Health: %.0f", GetPVarFloat(playerid, "HP_Combo"), health);
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthMinus], string);
+	PlayerTextDrawShow(playerid, Player[playerid][HealthMinus]);
+	
 	TextDrawShowForPlayer(playerid,Server[Barrier][5]);
 	TextDrawShowForPlayer(playerid,Server[Barrier][6]);
-	format(string_data,32,"HP: %.0f",float_data);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],string_data);
-	PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
-	if(GetPVarInt(playerid,"ClearTimer") != -1)
-	{
-		KillTimer(GetPVarInt(playerid,"ClearTimer"));
-	}
-	SetPVarInt(playerid,"ClearTimer",SetTimerEx("ClearMinusHealth",2500,false,"d",playerid));
 	
-	if(GetPVarInt(issuerid,"Connected"))
+	format(string, sizeof string, "HP: %.0f", health);
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], string);
+	PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
+	
+	if(GetPVarInt(playerid, "ClearTimer") != -1)
 	{
-	    if((GetPVarInt(playerid,"DuelID") == -1) && (GetPVarInt(issuerid,"DuelID") == -1))
+		KillTimer(GetPVarInt(playerid, "ClearTimer"));
+	}
+	
+	SetPVarInt(playerid, "ClearTimer", SetTimerEx("ClearMinusHealth", 2500, false, "i", playerid));
+	
+	if(GetPVarInt(issuerid, "Connected"))
+	{
+	    if((GetPVarInt(playerid, "DuelID") == -1) && (GetPVarInt(issuerid, "DuelID") == -1))
 	    {
-		    if(!GetPVarInt(playerid,"Playing") || !GetPVarInt(issuerid,"Playing")) return 1;
-		    if(GetPVarInt(playerid,"Team") == GetPVarInt(issuerid,"Team")) return 1;
+		    if(!GetPVarInt(playerid, "Playing") || !GetPVarInt(issuerid, "Playing"))
+			{
+				return 1;
+			}
+			
+		    if(GetPVarInt(playerid, "Team") == GetPVarInt(issuerid,"Team"))
+			{
+				return 1;
+			}
 	    }
 	    else
 		{
-			format(string_data,32,"-%.0f HP",GetPVarFloat(playerid,"HP_Combo"));
-			Update3DTextLabelText(Player[playerid][AtHead],GetPlayerColor(playerid),string_data);
+			format(string, sizeof string, "-%.0f HP", GetPVarFloat(playerid, "HP_Combo"));
+			Update3DTextLabelText(Player[playerid][AtHead], GetPlayerColor(playerid), string);
 		}
-		GivePVarInt(issuerid,"ShootCombo",1);
-		format(string_data,128,"%s~n~%s (-%.0f HP, %dx Combo)~n~Ping: %d / FPS: %d~n~Distance: %.1fm",Player[playerid][Name],WeaponNames[weaponid],GetPVarFloat(playerid,"HP_Combo"),GetPVarInt(issuerid,"ShootCombo"),GetPlayerPing(playerid),GetPVarInt(playerid,"FPS"),GetDistanceBetweenPlayers(issuerid,playerid));
-		PlayerTextDrawSetString(issuerid,Player[issuerid][Damage][0],string_data);
-		PlayerTextDrawShow(issuerid,Player[issuerid][Damage][0]);
-		format(string_data,128,"%s~n~%s (-%.0f HP, %dx Combo)~n~Ping: %d / FPS: %d~n~Distance: %.1fm",Player[issuerid][Name],WeaponNames[weaponid],GetPVarFloat(playerid,"HP_Combo"),GetPVarInt(issuerid,"ShootCombo"),GetPlayerPing(issuerid),GetPVarInt(issuerid,"FPS"),GetDistanceBetweenPlayers(issuerid,playerid));
-		PlayerTextDrawSetString(playerid,Player[playerid][Damage][1],string_data);
-		PlayerTextDrawShow(playerid,Player[playerid][Damage][1]);
-		if(GetPVarInt(issuerid,"DamageTimer") != -1)
+		
+		GivePVarInt(issuerid, "ShootCombo", 1);
+
+		format(string, sizeof string, "%s~n~%s (-%.0f HP, %ix Combo)~n~Ping: %i / FPS: %i~n~Distance: %.1fm", Player[playerid][Name], WeaponNames[weaponid], GetPVarFloat(playerid, "HP_Combo"), GetPVarInt(issuerid,"ShootCombo"), GetPlayerPing(playerid), GetPVarInt(playerid, "FPS"), GetDistanceBetweenPlayers(issuerid, playerid));
+		PlayerTextDrawSetString(issuerid, Player[issuerid][Damage][0], string);
+		PlayerTextDrawShow(issuerid, Player[issuerid][Damage][0]);
+		
+		format(string, sizeof string, "%s~n~%s (-%.0f HP, %ix Combo)~n~Ping: %i / FPS: %i~n~Distance: %.1fm", Player[issuerid][Name], WeaponNames[weaponid], GetPVarFloat(playerid, "HP_Combo"), GetPVarInt(issuerid,"ShootCombo"), GetPlayerPing(issuerid), GetPVarInt(issuerid, "FPS"), GetDistanceBetweenPlayers(issuerid, playerid));
+		PlayerTextDrawSetString(playerid, Player[playerid][Damage][1], string);
+		PlayerTextDrawShow(playerid, Player[playerid][Damage][1]);
+		
+		if(GetPVarInt(issuerid, "DamageTimer") != -1)
 		{
-			KillTimer(GetPVarInt(issuerid,"DamageTimer"));
+			KillTimer(GetPVarInt(issuerid, "DamageTimer"));
 		}
-		SetPVarInt(issuerid,"DamageTimer",SetTimerEx("HideDamage",2500,false,"d",issuerid));
-		if(GetPVarInt(playerid,"DamageTimer") != -1)
+		
+		SetPVarInt(issuerid, "DamageTimer", SetTimerEx("HideDamage", 2500, false, "i", issuerid));
+		
+		if(GetPVarInt(playerid, "DamageTimer") != -1)
 		{
-			KillTimer(GetPVarInt(playerid,"DamageTimer"));
+			KillTimer(GetPVarInt(playerid, "DamageTimer"));
 		}
-		SetPVarInt(playerid,"DamageTimer",SetTimerEx("HideDamage",2500,false,"d",playerid));
+		
+		SetPVarInt(playerid, "DamageTimer", SetTimerEx("HideDamage", 2500, false, "i", playerid));
 	}
+	
 	return 1;
 }
+
+
 
 public OnPlayerDeath(playerid, killerid, reason)
 {
@@ -7792,7 +8222,7 @@ public OnPlayerDeath(playerid, killerid, reason)
 	
 	if(GetPVarInt(playerid, "MassDeaths") > 1)
 	{
-	    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: FakeKill флуд)", Player[playerid][Name]);
+	    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: FakeKill флуд)", Player[playerid][Name]);
 	    mysql_ban(playerid, INVALID_PLAYER_ID, -1, "FakeKill флуд", "AntiHack");
 	    
 	    return 1;
@@ -7800,7 +8230,7 @@ public OnPlayerDeath(playerid, killerid, reason)
 	
 	if(killerid == playerid)
 	{
-	    SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Selfkill)", Player[playerid][Name]);
+	    SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически забанен {FFFF00}(Причина: Selfkill)", Player[playerid][Name]);
 	    mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Selfkill", "AntiHack");
 	    
 	    return 1;
@@ -7812,8 +8242,10 @@ public OnPlayerDeath(playerid, killerid, reason)
 	;
 	
 	TextDrawShowForPlayer(playerid,Server[RedFullScreen]);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],"HP: 0");
-	PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
+	
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], "HP: 0");
+	PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
+	
 	GetPlayerPos(playerid,float_data[0],float_data[1],float_data[2]);
 	SetPlayerCameraPos(playerid,floatadd(float_data[0],floatrandom(10)),floatadd(float_data[1],floatrandom(10)),floatadd(float_data[2],5.0));
 	SetPlayerCameraLookAt(playerid,float_data[0],float_data[1],float_data[2]);
@@ -7829,18 +8261,18 @@ public OnPlayerDeath(playerid, killerid, reason)
 	    GangZoneHideForPlayer(playerid,GetGVarInt("DM_GZ_2",GetPVarInt(playerid,"DM_Zone")));
 	    GangZoneHideForPlayer(playerid,GetGVarInt("DM_GZ_3",GetPVarInt(playerid,"DM_Zone")));
 	    GangZoneHideForPlayer(playerid,GetGVarInt("DM_GZ_4",GetPVarInt(playerid,"DM_Zone")));
-	    format(string_data,128,"Убийца: %s (ID: %d)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    format(string_data,128,"Убийца: %s (ID: %i)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 	    Update3DTextLabelText(Player[playerid][AtHead],GetPlayerColor(killerid),string_data);
-	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
-	    SendClientMessage(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    SendClientMessageF(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 	    return PlayerPlaySound(killerid,1150,0.0,0.0,0.0);
 	}
 	if(GetPVarInt(playerid,"DuelID") != -1)
 	{
-	    format(string_data,128,"Убийца: %s (ID: %d)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    format(string_data,128,"Убийца: %s (ID: %i)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 	    Update3DTextLabelText(Player[playerid][AtHead],GetPlayerColor(killerid),string_data);
-	    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
-	    SendClientMessage(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+	    SendClientMessageF(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 	    return PlayerPlaySound(killerid,1150,0.0,0.0,0.0);
 	}
 	SetPlayerColor(playerid,GetGVarInt("Team_Color_L",GetPVarInt(playerid,"Team")));
@@ -7936,10 +8368,10 @@ public OnPlayerDeath(playerid, killerid, reason)
 		else
 		{
 		    SendDeathMessage(killerid,playerid,reason);
-		    format(string_data,128,"Убийца: %s (ID: %d)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+		    format(string_data,128,"Убийца: %s (ID: %i)\nОружие: %s\nРасстояние: %.2f",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 		    Update3DTextLabelText(Player[playerid][AtHead],GetPlayerColor(killerid),string_data);
-		    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
-		    SendClientMessage(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %d) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+		    SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Вас убил {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[killerid][Name],killerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
+		    SendClientMessageF(killerid,-1,"[Инфо]: {AFAFAF}Вы убили {FF0000}%s (ID: %i) {FFFF00}(Оружие: %s, Расстояние: %.2f)",Player[playerid][Name],playerid,WeaponNames[reason],GetDistanceBetweenPlayers(playerid,killerid));
 		    PlayerPlaySound(killerid,1150,0.0,0.0,0.0);
 		    GivePVarInt(killerid,"Kills",1);
 		    GivePVarInt(killerid,"ComboKills",1);
@@ -7969,6 +8401,8 @@ public OnPlayerDeath(playerid, killerid, reason)
 	
 	return 1;
 }
+
+
 
 public OnPlayerSpawn(playerid)
 {
@@ -8004,8 +8438,8 @@ public OnPlayerSpawn(playerid)
 		
         SetCameraBehindPlayer(playerid);
 		PlayerPlaySound(playerid,1057,0.0,0.0,0.0);
-		SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Синхронизация проведена успешно {FFFFFF}| {AFAFAF}Время проведения синхронизации: {FFFF00}%d мсек",GetTickCount() - GetPVarInt(playerid,"SyncTick"));
-		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}синхронизировался",Player[playerid][Name]);
+		SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Синхронизация проведена успешно {FFFFFF}| {AFAFAF}Время проведения синхронизации: {FFFF00}%i мсек",GetTickCount() - GetPVarInt(playerid,"SyncTick"));
+		SendClientMessageToAllF(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}синхронизировался",Player[playerid][Name]);
 		valstr(string_data,playerid);
 		
 		foreach_p(i)
@@ -8021,7 +8455,7 @@ public OnPlayerSpawn(playerid)
 	
 	if(GetPVarInt(playerid,"KnifeAdd"))
 	{
-	    SendClientMessageToAll(-1,"[Инфо]: {FF0000}%s {AFAFAF}был автоматически добавлен в раунд {FFFF00}(Причина: Жертва бага ножа)",Player[playerid][Name]);
+	    SendClientMessageToAllF(-1,"[Инфо]: {FF0000}%s {AFAFAF}был автоматически добавлен в раунд {FFFF00}(Причина: Жертва бага ножа)",Player[playerid][Name]);
 	    SetPVarInt(playerid,"KnifeAdd",0);
 	    return AddToRound(playerid);
 	}
@@ -8029,8 +8463,10 @@ public OnPlayerSpawn(playerid)
 	TextDrawHideForPlayer(playerid,Server[RedFullScreen]);
 	SetPlayerFightingStyle(playerid, 6);
 	SetPlayerHealth(playerid, 100.0);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],"HP: 100");
-	PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
+	
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], "HP: 100");
+	PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
+	
 	if(GetPVarInt(playerid,"DM_Zone") == -1)
 	{
 		ResetPlayerWeapons(playerid);
@@ -8072,14 +8508,16 @@ public OnPlayerSpawn(playerid)
 		GangZoneShowForPlayer(playerid,GetGVarInt("DM_GZ_4",GetPVarInt(playerid,"DM_Zone")),GetGVarInt("Zone_Color"));
 		GivePlayerWeapon(playerid,GetGVarInt("DM_Weapon_1",GetPVarInt(playerid,"DM_Zone")),(Never << 1));
 		GivePlayerWeapon(playerid,GetGVarInt("DM_Weapon_2",GetPVarInt(playerid,"DM_Zone")),(Never << 1));
-		format(string_data,48,"~y~%s + %s~n~~r~Go Go Go!!!",WeaponNames[GetGVarInt("DM_Weapon_1",GetPVarInt(playerid,"DM_Zone"))],WeaponNames[GetGVarInt("DM_Weapon_2",GetPVarInt(playerid,"DM_Zone"))]);
-		GameTextForPlayer(playerid,string_data,2000,3);
-		SetPlayerTeam(playerid,playerid);
-		SetPlayerColor(playerid,-1);
+
+		GameTextForPlayerF(playerid, "~y~%s + %s~n~~r~Go Go Go!!!", 2000, 3, WeaponNames[GetGVarInt("DM_Weapon_1", GetPVarInt(playerid, "DM_Zone"))], WeaponNames[GetGVarInt("DM_Weapon_2", GetPVarInt(playerid, "DM_Zone"))]);
+		SetPlayerTeam(playerid, playerid);
+		SetPlayerColor(playerid, -1);
 	}
 	
 	return 1;
 }
+
+
 
 public OnRconLoginAttempt(ip[], password[], success)
 {
@@ -8113,7 +8551,7 @@ public OnRconLoginAttempt(ip[], password[], success)
 
 	if(!success)
 	{
-		SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %d, IP: %s] {AFAFAF}был автоматически забанен {FFFF00}(Причина: Неудачная попытка логина в RCON)", Player[playerid][Name], playerid, ip);
+		SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s [ID: %i, IP: %s] {AFAFAF}был автоматически забанен {FFFF00}(Причина: Неудачная попытка логина в RCON)", Player[playerid][Name], playerid, ip);
 		mysql_ban(playerid, INVALID_PLAYER_ID, -1, "Неверный RCON", "AntiHack");
 		
 		return 1;
@@ -8124,6 +8562,8 @@ public OnRconLoginAttempt(ip[], password[], success)
 	
 	return 1;
 }
+
+
 
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 {
@@ -8144,7 +8584,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 				
 		  		case true:
 		    	{
-		    	    if(!regex_match_exid(inputtext, passwordRegex) || !(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext))
+		    	    if(/*!regex_match_exid(inputtext, passwordRegex) || */!(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext))
 					{
 					    SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Неверный формат пароля!");
 		    			ShowPlayerRegisterDialog(playerid);
@@ -8152,19 +8592,15 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 		    			return 1;
 					}
 					
-					new password[129];
-					
-					SHA512(inputtext, password, sizeof password);
 					SetPVarInt(playerid, "Logged", true);
 					
 					PlayerPlaySound(playerid, 33611, 0.0, 0.0, 0.0);
 					
-					PlayerTextDrawHide(playerid,Player[playerid][LoginText]);
-					
+					PlayerTextDrawHide(playerid, Player[playerid][LoginText]);
 					PlayerTextDrawSetString(playerid, Player[playerid][TeamText], "~w~~h~>> ~r~~h~Attack ~w~~h~<<     ~b~Defend     ~y~Refferee");
      				PlayerTextDrawShow(playerid, Player[playerid][TeamText]);
      				
-		 			CallLocalFunction("OnPlayerRegister", "is", playerid, password);
+		 			CallLocalFunction("OnPlayerRegister", "is", playerid, inputtext);
 		 			
 		 			return 1;
 		    	}
@@ -8181,15 +8617,15 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 		    {
 		    	case false:
 		     	{
-		      		SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Отказ от логина)", Player[playerid][Name]);
-		        	SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
+		      		SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Отказ от логина)", Player[playerid][Name]);
+		        	SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
 
 					return Kick(playerid);
 				}
 				
 		  		case true:
 		    	{
-                   	if(isnull(inputtext) || !regex_match_exid(inputtext, passwordRegex) || !(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext))
+                   	if(isnull(inputtext) || /*!regex_match_exid(inputtext, passwordRegex) || */!(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext))
 					{
 						CallLocalFunction("OnPlayerLoginFailed", "i", playerid);
 						
@@ -8200,7 +8636,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 		    	    new password[129];
 
 		    	    SHA512(inputtext, input, sizeof input);
-		       		GetPVarString(playerid, "Password", password, sizeof password);
+		       		GetPVarString(playerid, "password", password, sizeof password);
 		       		
 		       		if(strcmp(input, password, false))
 		       		{
@@ -8242,7 +8678,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 				
 		     	case true:
 		      	{
-		       		if(isnull(inputtext) || !regex_match_exid(inputtext, passwordRegex) || !(4 <= strlen(inputtext) <= 20) || IsNumeric(inputtext))
+		       		if(isnull(inputtext) || /*!regex_match_exid(inputtext, passwordRegex) || */!(4 <= strlen(inputtext) <= 20) || IsNumeric(inputtext))
 		         	{
 		          		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Длина пароля должна быть не меньше 4 и не больше 20 символов, также пароль не должен состоять из одних чисел");
 		            	ShowPlayerChangepassDialog(playerid);
@@ -8254,7 +8690,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 					new password[129];
 					
 					SHA512(inputtext, input, sizeof input);
-					GetPVarString(playerid, "Password", password, sizeof password);
+					GetPVarString(playerid, "password", password, sizeof password);
 					
 					if(!strcmp(input, password, false))
 					{
@@ -8264,9 +8700,9 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 					    return 1;
 					}
 					
-					SetPVarString(playerid, "Password", input);
+					SetPVarString(playerid, "password", input);
 					
-					SendClientMessage(playerid, -1, "[Инфо]: {AFAFAF}Вы успешно сменили себе пароль на {FFFF00}'%s'", inputtext);
+					SendClientMessageF(playerid, -1, "[Инфо]: {AFAFAF}Вы успешно сменили себе пароль на {FFFF00}'%s'", inputtext);
 					
 					return 1;
 		   		}
@@ -8294,17 +8730,17 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 		      	    new password[129];
 		      	    
 		       		SHA512(inputtext, input, sizeof input);
-					GetPVarString(playerid, "Password", password, sizeof password);
+					GetPVarString(playerid, "password", password, sizeof password);
 					
-		   			if(isnull(inputtext) || !regex_match_exid(inputtext, passwordRegex) || !(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext) || strcmp(input, password, false))
+		   			if(isnull(inputtext) || /*!regex_match_exid(inputtext, passwordRegex) || */!(4 < strlen(inputtext) <= 20) || IsNumeric(inputtext) || strcmp(input, password, false))
 		    		{
 				    	GivePVarInt(playerid, "Login_Attempts", 1);
-		     			SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Неверный пароль {FF0000}(%d/3)", GetPVarInt(playerid, "Login_Attempts"));
+		     			SendClientMessageF(playerid, -1, "[Ошибка]: {AFAFAF}Неверный пароль {FF0000}(%i/3)", GetPVarInt(playerid, "Login_Attempts"));
 
 						if(GetPVarInt(playerid, "Login_Attempts") >= 3)
 		       			{
-		    		    	SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Неудачная попытка сброса статистики)", Player[playerid][Name]);
-		     		    	SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
+		    		    	SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}был автоматически кикнут {FFFF00}(Причина: Неудачная попытка сброса статистики)", Player[playerid][Name]);
+		     		    	SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}вышел из игры {FF0000}(Кикнут)", Player[playerid][Name]);
 		      		    	Kick(playerid);
 		      		    	
 		      		    	return 1;
@@ -9036,7 +9472,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 							
 							GivePlayerWeapon(playerid, 16, cellmax);
 							
-							SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Grenades)", Player[playerid][Name]);
+							SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Grenades)", Player[playerid][Name]);
 							
 							return 1;
 		     			}
@@ -9082,7 +9518,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 		      			case 24:
 			        	{
 		          			SetPlayerInterior(playerid, 0);
-			            	SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Desert Eagle, Локация: %d)", Player[playerid][Name], (listitem + 1));
+			            	SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Desert Eagle, Локация: %i)", Player[playerid][Name], (listitem + 1));
 
 							switch(listitem)
 				            {
@@ -9097,7 +9533,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 						case 25:
 		    			{
 		       				SetPlayerInterior(playerid, 0);
-		           			SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Shotgun, Локация: %d)", Player[playerid][Name], (listitem + 1));
+		           			SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Shotgun, Локация: %i)", Player[playerid][Name], (listitem + 1));
 
 							switch(listitem)
 				            {
@@ -9112,7 +9548,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 						case 31:
 		    			{
 		       				SetPlayerInterior(playerid, 0);
-		           			SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: M4, Локация: %d)", Player[playerid][Name], (listitem + 1));
+		           			SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: M4, Локация: %i)", Player[playerid][Name], (listitem + 1));
 
 							switch(listitem)
 				            {
@@ -9127,7 +9563,7 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 						case 34:
 		    			{
 		       				SetPlayerInterior(playerid, 0);
-		           			SendClientMessageToAll(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Sniper Rifle, Локация: %d)", Player[playerid][Name], (listitem + 1));
+		           			SendClientMessageToAllF(-1, "[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на дуель {FFFF00}(Оружие: Sniper Rifle, Локация: %i)", Player[playerid][Name], (listitem + 1));
 
 							switch(listitem)
 				            {
@@ -9216,17 +9652,21 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 	return 0;
 }
 
+
+
 public OnPlayerCommandPerformed(playerid, command[], params[], params_length, return_code)
 {
 	if(return_code != 1)
 	{
-		SendClientMessage(playerid, -1, "[Ошибка]: {AFAFAF}Комманды {FF0000}%s {AFAFAF}не существует, для списка комманд введите {FFFF00}/cmd", command);
+		SendClientMessageF(playerid, -1, "[Ошибка]: {AFAFAF}Комманды {FF0000}%s {AFAFAF}не существует, для списка комманд введите {FFFF00}/cmd", command);
 		
-		return 0;
+		return 1;
 	}
 	
 	return 1;
 }
+
+
 
 public OnPlayerCommandReceived(playerid, command[], params[], params_length)
 {
@@ -9252,7 +9692,11 @@ public OnPlayerCommandReceived(playerid, command[], params[], params_length)
 	return 1;
 }
 
-CMD:credits(playerid,params[])
+
+
+
+
+/*CMD:credits(playerid,params[])
 {
 	#pragma unused params
 	SetPVarInt(playerid,"CMD_Time",(GetTickCount() - 2501));
@@ -9283,7 +9727,9 @@ CMD:uptime(playerid,params[])
 	;
 	
 	Convert(((GetTickCount() - GetGVarInt("UpTime")) / 1000),string_data);
-	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Аптайм сервера: {FFFF00}%s",string_data);
+	SendClientMessageFplayerid,-1,"[Инфо]: {AFAFAF}Аптайм сервера: {FFFF00}%s",string_data);
+	
+	return 1;
 }
 
 CMD:mystats(playerid,params[])
@@ -9296,7 +9742,7 @@ CMD:mystats(playerid,params[])
 	SetPVarInt(playerid,"CMD_Time",(GetTickCount() - 2501));
 	valstr(int_data,playerid);
 	return CallLocalFunction("cmd_stats","ds",playerid,int_data);
-}
+}*/
 
 /*CMD:stats(playerid,params[])
 {
@@ -9308,16 +9754,16 @@ CMD:mystats(playerid,params[])
 	if(IsNumeric(params))
 	{
 	    new id = strval(params);
-	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
         format(String256,256,"{FFFFFF}bLeague | Статистика игрока %s",Player[id][Name]);
         new RegS[24], LoginS[24];
         GetPVarString(id,"Reg_Date",RegS,24);
         GetPVarString(id,"Login_Date",LoginS,24);
-		format(String2048,2048,"{FFFFFF}Ник: %s | Дата регистрации: %s | Дата входа: %s\nВремя игры на сервере: %d дней, %d:%02d:%02d",Player[id][Name],RegS,LoginS,GetPVarInt(id,"AtServer_D"),GetPVarInt(id,"AtServer_H"),GetPVarInt(id,"AtServer_M"),GetPVarInt(id,"AtServer_S"));
-		format(String2048,2048,"%s\nСыграно раундов: %d | Побегов с раундов: %d\nКоммандных побед: %d | Коммандных поражений: %d",String2048,GetPVarInt(id,"B_Played") + GetPVarInt(id,"A_Played") + GetPVarInt(id,"C_Played"),GetPVarInt(id,"RunsFromRound"),GetPVarInt(id,"Team_Wins"),GetPVarInt(id,"Team_Loses"));
-		format(String2048,2048,"%s\nСыграно баз: %d | Сыграно арен: %d | Сыграно CTF: %d\nУбийств в раундах: %d | Смертей в раундах: %d | Соотношение: %.2f",String2048,GetPVarInt(id,"B_Played"),GetPVarInt(id,"A_Played"),GetPVarInt(id,"C_Played"),GetPVarInt(id,"Kills"),GetPVarInt(id,"Deaths"),GetRatio(GetPVarInt(id,"Kills"),GetPVarInt(id,"Deaths")));
-		format(String2048,2048,"%s\nУбийств на DM: %d | Смертей на DM: %d | Соотношение: %.2f\nУбийств с ножа: %d | Смертей от ножа: %d | Соотношение: %.2f",String2048,GetPVarInt(id,"DM_Kills"),GetPVarInt(id,"DM_Deaths"),GetRatio(GetPVarInt(id,"DM_Kills"),GetPVarInt(id,"DM_Deaths")),GetPVarInt(id,"KnifeKills"),GetPVarInt(id,"KnifeDeaths"),GetRatio(GetPVarInt(id,"KnifeKills"),GetPVarInt(id,"KnifeDeaths")));
-		format(String2048,2048,"%s\nВсего убийств: %d | Всего смертей: %d | Общее соотношение: %.2f",String2048,(GetPVarInt(id,"Kills") + GetPVarInt(id,"DM_Kills")),(GetPVarInt(id,"Deaths") + GetPVarInt(id,"DM_Deaths")),GetRatio((GetPVarInt(id,"Kills") + GetPVarInt(id,"DM_Kills")),(GetPVarInt(id,"Deaths") + GetPVarInt(id,"DM_Deaths"))));
+		format(String2048,2048,"{FFFFFF}Ник: %s | Дата регистрации: %s | Дата входа: %s\nВремя игры на сервере: %i дней, %i:%02d:%02d",Player[id][Name],RegS,LoginS,GetPVarInt(id,"AtServer_D"),GetPVarInt(id,"AtServer_H"),GetPVarInt(id,"AtServer_M"),GetPVarInt(id,"AtServer_S"));
+		format(String2048,2048,"%s\nСыграно раундов: %i | Побегов с раундов: %i\nКоммандных побед: %i | Коммандных поражений: %i",String2048,GetPVarInt(id,"B_Played") + GetPVarInt(id,"A_Played") + GetPVarInt(id,"C_Played"),GetPVarInt(id,"RunsFromRound"),GetPVarInt(id,"Team_Wins"),GetPVarInt(id,"Team_Loses"));
+		format(String2048,2048,"%s\nСыграно баз: %i | Сыграно арен: %i | Сыграно CTF: %i\nУбийств в раундах: %i | Смертей в раундах: %i | Соотношение: %.2f",String2048,GetPVarInt(id,"B_Played"),GetPVarInt(id,"A_Played"),GetPVarInt(id,"C_Played"),GetPVarInt(id,"Kills"),GetPVarInt(id,"Deaths"),GetRatio(GetPVarInt(id,"Kills"),GetPVarInt(id,"Deaths")));
+		format(String2048,2048,"%s\nУбийств на DM: %i | Смертей на DM: %i | Соотношение: %.2f\nУбийств с ножа: %i | Смертей от ножа: %i | Соотношение: %.2f",String2048,GetPVarInt(id,"DM_Kills"),GetPVarInt(id,"DM_Deaths"),GetRatio(GetPVarInt(id,"DM_Kills"),GetPVarInt(id,"DM_Deaths")),GetPVarInt(id,"KnifeKills"),GetPVarInt(id,"KnifeDeaths"),GetRatio(GetPVarInt(id,"KnifeKills"),GetPVarInt(id,"KnifeDeaths")));
+		format(String2048,2048,"%s\nВсего убийств: %i | Всего смертей: %i | Общее соотношение: %.2f",String2048,(GetPVarInt(id,"Kills") + GetPVarInt(id,"DM_Kills")),(GetPVarInt(id,"Deaths") + GetPVarInt(id,"DM_Deaths")),GetRatio((GetPVarInt(id,"Kills") + GetPVarInt(id,"DM_Kills")),(GetPVarInt(id,"Deaths") + GetPVarInt(id,"DM_Deaths"))));
 		return ShowPlayerDialog(playerid,OnlyText,0,String256,String2048,"Ок","Отмена");
 	}
 	else
@@ -9367,16 +9813,16 @@ CMD:mystats(playerid,params[])
 		TWins = iparam(Player[playerid][Query],0x7C,Q_TWins);
 		TLoses = iparam(Player[playerid][Query],0x7C,Q_TLoses);
 		format(String128,128,"{FFFFFF}bLeague | Статистика игрока %s",params);
-		format(String2048,2048,"{FFFFFF}Ник: %s | Дата регистрации: %s | Дата входа: %s\nВремя игры на сервере: %d дней, %d:%02d:%02d",params,RegDate,LoginDate,AtServerD,AtServerH,AtServerM,AtServerS);
-		format(String2048,2048,"%s\nСыграно раундов: %d | Побегов с раундов: %d\nКоммандных побед: %d | Коммандных поражений: %d",String2048,APlayed + BPlayed + CPlayed,RRuns,TWins,TLoses);
-		format(String2048,2048,"%s\nСыграно баз: %d | Сыграно арен: %d | Сыграно CTF: %d\nУбийств в раундах: %d | Смертей в раундах: %d | Соотношение: %.2f",String2048,BPlayed,APlayed,CPlayed,Kills,Deaths,GetRatio(Kills,Deaths));
-		format(String2048,2048,"%s\nУбийств на DM: %d | Смертей на DM: %d | Соотношение: %.2f\nУбийств с ножа: %d | Смертей от ножа: %d | Соотношение: %.2f",String2048,DMKills,DMDeaths,GetRatio(DMKills,DMDeaths),KKills,KDeaths,GetRatio(KKills,KDeaths));
-		format(String2048,2048,"%s\nВсего убийств: %d | Всего смертей: %d | Общее соотношение: %.2f",String2048,(Kills + KKills + DMKills),(Deaths + KDeaths + DMDeaths),GetRatio((Kills + KKills + DMKills),(Deaths + KDeaths + DMDeaths)));
+		format(String2048,2048,"{FFFFFF}Ник: %s | Дата регистрации: %s | Дата входа: %s\nВремя игры на сервере: %i дней, %i:%02d:%02d",params,RegDate,LoginDate,AtServerD,AtServerH,AtServerM,AtServerS);
+		format(String2048,2048,"%s\nСыграно раундов: %i | Побегов с раундов: %i\nКоммандных побед: %i | Коммандных поражений: %i",String2048,APlayed + BPlayed + CPlayed,RRuns,TWins,TLoses);
+		format(String2048,2048,"%s\nСыграно баз: %i | Сыграно арен: %i | Сыграно CTF: %i\nУбийств в раундах: %i | Смертей в раундах: %i | Соотношение: %.2f",String2048,BPlayed,APlayed,CPlayed,Kills,Deaths,GetRatio(Kills,Deaths));
+		format(String2048,2048,"%s\nУбийств на DM: %i | Смертей на DM: %i | Соотношение: %.2f\nУбийств с ножа: %i | Смертей от ножа: %i | Соотношение: %.2f",String2048,DMKills,DMDeaths,GetRatio(DMKills,DMDeaths),KKills,KDeaths,GetRatio(KKills,KDeaths));
+		format(String2048,2048,"%s\nВсего убийств: %i | Всего смертей: %i | Общее соотношение: %.2f",String2048,(Kills + KKills + DMKills),(Deaths + KDeaths + DMDeaths),GetRatio((Kills + KKills + DMKills),(Deaths + KDeaths + DMDeaths)));
 	}
 	return ShowPlayerDialog(playerid,OnlyText,0,String128,String2048,"Ок","Отмена");
 }*/
 
-CMD:cmd(playerid,params[])
+/*CMD:cmd(playerid,params[])
 {
 	#pragma unused params
 	new
@@ -9451,15 +9897,15 @@ CMD:admins(playerid,params[])
 	        switch(aCount[1])
 	        {
 	            case 0: SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Администрации онлайн нет");
-	            default: SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}На сервере %d модераторов",aCount[1]);
+	            default: SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}На сервере %i модераторов",aCount[1]);
 			}
 		}
 		default:
 		{
 		    switch(aCount[1])
 		    {
-		        case 0: SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}На сервере %d администраторов",aCount[0]);
-		        default: SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}На сервере %d администраторов и %d модераторов",aCount[0],aCount[1]);
+		        case 0: SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}На сервере %i администраторов",aCount[0]);
+		        default: SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}На сервере %i администраторов и %i модераторов",aCount[0],aCount[1]);
 			}
 		}
 	}
@@ -9471,8 +9917,9 @@ CMD:sql(playerid,params[])
 	if(GetPVarInt(playerid,"Admin") != 5) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}У Вас нет доступа к этой комманде");
 	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sql [запрос]");
 	if(strfind(params,"SELECT",true) != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Запрос `SELECT` не поддерживается");
-	mysql_function_query(mysqlHandle,params,false,"","");
-	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Запрос к MySQL БД успешно выполнен {FFFF00}(%s)",params);
+	mysql_function_query(mysqlHandle, params, false, "", "");
+	SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}Запрос к MySQL БД успешно выполнен {FFFF00}(%s)",params);
+	return 1;
 }
 
 CMD:getip(playerid,params[])
@@ -9482,8 +9929,16 @@ CMD:getip(playerid,params[])
     new
 		id = strval(params)
 	;
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
-	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}IP адрес игрока {FF0000}%s {AFAFAF}- {FFFF00}%s",Player[id][Name],Player[id][IP]);
+    if(!GetPVarInt(id,"Connected"))
+	{
+		SendClientMessageF(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере", id);
+		
+		return 1;
+	}
+	
+	SendClientMessageF(playerid,-1,"[Инфо]: {AFAFAF}IP адрес игрока {FF0000}%s {AFAFAF}- {FFFF00}%s", Player[id][Name], Player[id][IP]);
+	
+	return 1;
 }
 
 CMD:changepass(playerid,params[])
@@ -9572,7 +10027,7 @@ CMD:gmenu(playerid,params[])
 	new
 		id = strval(params)
 	;
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	if(!GetPVarInt(id,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не заспавнен");
 	if(!GetPVarInt(id,"Playing")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не находится в раунде");
     if(!GetPVarInt(id,"Weapon_1") || !GetPVarInt(id,"Weapon_2")) ShowPlayerFirstWeapDialog(id);
@@ -9665,15 +10120,17 @@ CMD:pause(playerid,params[])
 	else if(!strcmp(params,"off",true))
 	{
 	    if(!GetGVarInt("Paused")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игра не находится в режиме паузы");
-	    SetGVarInt("Paused",0);
+	    SetGVarInt("Paused", false);
+	    
 	    foreach_p(i)
 		{
-			if(GetPVarInt(i,"Playing"))
+			if(GetPVarInt(i, "Playing"))
 			{
-				TogglePlayerControllable(i,true);
-				GameTextForPlayer(i,"~y~~h~Game~n~~b~~h~Continued!",1200,3);
+				TogglePlayerControllable(i, true);
+				GameTextForPlayer(i,"~y~~h~Game~n~~b~~h~Continued!", 1200, 3);
 			}
 		}
+		
 		if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}возобновил раунд",Player[playerid][Name]);
 		else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}возобновил раунд",Player[playerid][Name]);
 	}
@@ -9923,7 +10380,7 @@ CMD:spec(playerid,params[])
 	new
 		id = strval(params)
 	;
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	if(!GetPVarInt(id,"Playing")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не в раунде");
 	if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете следить за собой!");
 	if(GetPVarInt(id,"SpecID") != -1 || GetPlayerState(id) == 9) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок уже следит");
@@ -9950,14 +10407,14 @@ CMD:report(playerid,params[])
 	    id
  	;
 	if(sscanf(params,"ds[12]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/report [id] [причина]");
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	if(IsPlayerAdmin(id) || GetPVarInt(id,"Moderator")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете отправить жалобу на администратора/модератора");
 	if(strlen(str_param) < 2 || strlen(str_param) > 10) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверная длина причины (от 2 до 10 символов)");
 	foreach_p(i)
 	{
 		if(GetPVarInt(i,"Moderator") || IsPlayerAdmin(i))
 		{
-			SendClientMessage(i,-1,"[Инфо]: {FF0000}%s [ID: %d] {00FF40}отправил жалобу на {FF0000}%s [ID: %d], {FFFF00}(Причина: %s)",Player[playerid][Name],playerid,Player[id][Name],id,str_param);
+			SendClientMessage(i,-1,"[Инфо]: {FF0000}%s [ID: %i] {00FF40}отправил жалобу на {FF0000}%s [ID: %i], {FFFF00}(Причина: %s)",Player[playerid][Name],playerid,Player[id][Name],id,str_param);
 		}
 	}
 	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Ваша жалоба направлена всем администраторам, находящимся на сервере");
@@ -10001,13 +10458,13 @@ CMD:car(playerid,params[])
  	{
 	 	vid = strval(params);
 	}
- 	if(!(400 <= vid <= 611)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный ID транспорта (%d)",vid);
+ 	if(!(400 <= vid <= 611)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный ID транспорта (%i)",vid);
  	for(new i, size = sizeof(ForbiddenVehicles); i != size; i++)
  	{
 		if(ForbiddenVehicles[i] == vid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете заспавнить этот транспорт");
 	}
 	SpawnVehicle(playerid,vid);
-	return SendClientMessage(playerid,-1,"[Инфо]: {FF0000}%s {AFAFAF}- Транспорт создан {FFFF00}(%d/3)",CarList[vid - 400],GetPVarInt(playerid,"Cars_Spawned"));
+	return SendClientMessage(playerid,-1,"[Инфо]: {FF0000}%s {AFAFAF}- Транспорт создан {FFFF00}(%i/3)",CarList[vid - 400],GetPVarInt(playerid,"Cars_Spawned"));
 }
 
 CMD:v(playerid,params[])
@@ -10045,7 +10502,7 @@ CMD:veh(playerid,params[])
 	{
 		vid = strval(params);
 	}
-	if(!(400 <= vid <= 611)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный ID транспорта (%d)",vid);
+	if(!(400 <= vid <= 611)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный ID транспорта (%i)",vid);
  	for(new i, size = sizeof(ForbiddenVehicles); i != size; i++)
   	{
  		if(ForbiddenVehicles[i] == vid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете заспавнить этот транспорт");
@@ -10062,7 +10519,7 @@ CMD:a(playerid,params[])
 
 CMD:arena(playerid,params[])
 {
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/arena [0-%d | random]",GetGVarInt("A_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/arena [0-%i | random]",GetGVarInt("A_Count") - 1);
 	if(!GetPVarInt(playerid,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы должны быть заспавнены чтобы голосовать");
 	if(!GetGVarInt("Vote_Avalible")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Возможность голосовать за базы/арены отключена администратором");
 	if(GetPVarInt(playerid,"No_Play")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете проголосовать так как у Вас отключена игра на базах/аренах");
@@ -10112,11 +10569,11 @@ CMD:arena(playerid,params[])
 	        if(!Arena[arenaid][Exists]) goto ARENA_RANDOM;
 	        
 	        Arena[arenaid][Votes]++;
-	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную арену {FFFF00}(%d)",Player[playerid][Name],arenaid);
+	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную арену {FFFF00}(%i)",Player[playerid][Name],arenaid);
 
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-	        format(pack,48,"%s - Arena: %d",fake_name,arenaid);
+	        format(pack,48,"%s - Arena: %i",fake_name,arenaid);
 	        strpack(vote_string,pack);
 	        
 			return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10133,17 +10590,17 @@ CMD:arena(playerid,params[])
 	        
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-	        format(pack,48,"~n~%s - Arena: %d",fake_name,arenaid);
+	        format(pack,48,"~n~%s - Arena: %i",fake_name,arenaid);
 	        strcat(vote_string,pack);
 	        
-			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную арену {FFFF00}(%d)",Player[playerid][Name],arenaid);
+			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную арену {FFFF00}(%i)",Player[playerid][Name],arenaid);
 		}
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/arena [0-%d | random]",GetGVarInt("A_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/arena [0-%i | random]",GetGVarInt("A_Count") - 1);
 
 	arenaid = strval(params);
 	
-	if(!(0 <= arenaid < GetGVarInt("A_Count")) || !Arena[arenaid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арены №%d не существует",arenaid);
+	if(!(0 <= arenaid < GetGVarInt("A_Count")) || !Arena[arenaid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арены №%i не существует",arenaid);
 	if(!GetGVarInt("Voting"))
 	{
 	    SetGVarInt("Voting",1);
@@ -10172,7 +10629,7 @@ CMD:arena(playerid,params[])
         
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-        format(pack,48,"%s - Arena: %d",fake_name,arenaid);
+        format(pack,48,"%s - Arena: %i",fake_name,arenaid);
         strpack(vote_string,pack);
         
         return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10185,10 +10642,10 @@ CMD:arena(playerid,params[])
 	    
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-	    format(pack,48,"~n~%s - Arena: %d",fake_name,arenaid);
+	    format(pack,48,"~n~%s - Arena: %i",fake_name,arenaid);
 	    strcat(vote_string,pack);
 	}
-	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за арену {FFFF00}№%d",Player[playerid][Name],arenaid);
+	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за арену {FFFF00}№%i",Player[playerid][Name],arenaid);
 }
 
 CMD:b(playerid,params[])
@@ -10199,7 +10656,7 @@ CMD:b(playerid,params[])
 
 CMD:base(playerid,params[])
 {
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/base [0-%d | random]",GetGVarInt("B_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/base [0-%i | random]",GetGVarInt("B_Count") - 1);
 	if(!GetPVarInt(playerid,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы должны быть заспавнены чтобы голосовать");
 	if(!GetGVarInt("Vote_Avalible")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Возможность голосовать за базы/арены/ctf отключена администратором");
 	if(GetOnlinePlayers() <= 1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Ты один на сервере!");
@@ -10247,11 +10704,11 @@ CMD:base(playerid,params[])
 	        if(!Base[baseid][Exists]) goto BASE_RANDOM;
 	        
 	        Base[baseid][Votes]++;
-	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную базу {FFFF00}(%d)",Player[playerid][Name],baseid);
+	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайную базу {FFFF00}(%i)",Player[playerid][Name],baseid);
 
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-	        format(pack,48,"%s - Base: %d",fake_name,baseid);
+	        format(pack,48,"%s - Base: %i",fake_name,baseid);
 	        strpack(vote_string,pack);
 	        
 			return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10268,17 +10725,17 @@ CMD:base(playerid,params[])
 	        
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-			format(pack,48,"~n~%s - Base: %d",fake_name,baseid);
+			format(pack,48,"~n~%s - Base: %i",fake_name,baseid);
 			strcat(vote_string,pack);
 			
-			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%d)",Player[playerid][Name],baseid);
+			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%i)",Player[playerid][Name],baseid);
 		}
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/base [0-%d | random]",GetGVarInt("B_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/base [0-%i | random]",GetGVarInt("B_Count") - 1);
 
 	baseid = strval(params);
 	
-	if(!(0 <= baseid < GetGVarInt("B_Count")) || !Base[baseid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Базы №%d не существует",baseid);
+	if(!(0 <= baseid < GetGVarInt("B_Count")) || !Base[baseid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Базы №%i не существует",baseid);
 	if(!GetGVarInt("Voting"))
 	{
 	    SetGVarInt("Voting",1);
@@ -10304,11 +10761,11 @@ CMD:base(playerid,params[])
 		}
 		
         Base[baseid][Votes]++;
-        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за базу {FFFF00}№%d",Player[playerid][Name],baseid);
+        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за базу {FFFF00}№%i",Player[playerid][Name],baseid);
 
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-		format(pack,48,"%s - Base: %d",fake_name,baseid);
+		format(pack,48,"%s - Base: %i",fake_name,baseid);
 		strpack(vote_string,pack);
 		
 		return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10321,10 +10778,10 @@ CMD:base(playerid,params[])
 	    
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-		format(pack,48,"~n~%s - Base: %d",fake_name,baseid);
+		format(pack,48,"~n~%s - Base: %i",fake_name,baseid);
 		strcat(vote_string,pack);
 	}
-	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за базу {FFFF00}№%d",Player[playerid][Name],baseid);
+	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за базу {FFFF00}№%i",Player[playerid][Name],baseid);
 }
 
 CMD:c(playerid,params[])
@@ -10335,7 +10792,7 @@ CMD:c(playerid,params[])
 
 CMD:ctf(playerid,params[])
 {
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/ctf [0-%d | random]",GetGVarInt("C_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/ctf [0-%i | random]",GetGVarInt("C_Count") - 1);
 	if(!GetGVarInt("C_Count")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Не могу запустить голосование за CTF. Нет подходящих CTF зон");
 	if(!GetPVarInt(playerid,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы должны быть заспавнены чтобы голосовать");
 	if(!GetGVarInt("Vote_Avalible")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Возможность голосовать за базы/арены/ctf отключена администратором");
@@ -10384,11 +10841,11 @@ CMD:ctf(playerid,params[])
 	        if(!CTF[ctfid][Exists]) goto CTF_RANDOM;
 	        
 	        CTF[ctfid][Votes]++;
-	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%d)",Player[playerid][Name],ctfid);
+	        SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%i)",Player[playerid][Name],ctfid);
 
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-	        format(pack,48,"%s - CTF: %d",fake_name,ctfid);
+	        format(pack,48,"%s - CTF: %i",fake_name,ctfid);
 	        strpack(vote_string,pack);
 	        
 			return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10405,17 +10862,17 @@ CMD:ctf(playerid,params[])
 	        
 			strcpy(fake_name,Player[playerid][Name]);
 			ReplaceStyleChars(fake_name);
-			format(pack,48,"~n~%s - CTF: %d",fake_name,ctfid);
+			format(pack,48,"~n~%s - CTF: %i",fake_name,ctfid);
 			strcat(vote_string,pack);
 			
-			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%d)",Player[playerid][Name],ctfid);
+			return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за случайный CTF {FFFF00}(%i)",Player[playerid][Name],ctfid);
 		}
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/ctf [0-%d | random]",GetGVarInt("C_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/ctf [0-%i | random]",GetGVarInt("C_Count") - 1);
 
 	ctfid = strval(params);
 	
-	if(!(0 <= ctfid < GetGVarInt("C_Count")) || !CTF[ctfid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}CTF №%d не существует",ctfid);
+	if(!(0 <= ctfid < GetGVarInt("C_Count")) || !CTF[ctfid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}CTF №%i не существует",ctfid);
 	if(!GetGVarInt("Voting"))
 	{
 	    SetGVarInt("Voting",1);
@@ -10441,11 +10898,11 @@ CMD:ctf(playerid,params[])
 		}
 		
         CTF[ctfid][Votes]++;
-		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за CTF {FFFF00}№%d",Player[playerid][Name],ctfid);
+		SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за CTF {FFFF00}№%i",Player[playerid][Name],ctfid);
 
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-		format(pack,48,"%s - CTF: %d",fake_name,ctfid);
+		format(pack,48,"%s - CTF: %i",fake_name,ctfid);
 		strpack(vote_string,pack);
 		
 		return CallLocalFunction("VoteCountTimer","d",GetGVarInt("Default_VotingTime"));
@@ -10458,10 +10915,10 @@ CMD:ctf(playerid,params[])
 	    
 		strcpy(fake_name,Player[playerid][Name]);
 		ReplaceStyleChars(fake_name);
-		format(pack,48,"~n~%s - CTF: %d",fake_name,ctfid);
+		format(pack,48,"~n~%s - CTF: %i",fake_name,ctfid);
 		strcat(vote_string,pack);
 	}
-	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за CTF {FFFF00}№%d",Player[playerid][Name],ctfid);
+	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}проголосовал за CTF {FFFF00}№%i",Player[playerid][Name],ctfid);
 }
 
 CMD:dmzone(playerid,params[])
@@ -10484,7 +10941,7 @@ CMD:dm(playerid,params[])
 	}
 	else
 	{
-	    if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/dm [1-%d]",GetGVarInt("D_Count"));
+	    if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/dm [1-%i]",GetGVarInt("D_Count"));
 	    dmid = (strval(params) - 1);
 	}
 	if(GetPVarInt(playerid,"Playing")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы на раунде!");
@@ -10492,10 +10949,10 @@ CMD:dm(playerid,params[])
 	if(GetPVarInt(playerid,"DuelID") != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Сначала выйдите из дуели!");
 	if(GetPVarInt(playerid,"DM_Zone") != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы уже находитесь на DM!");
 	if(GetPVarInt(playerid,"SpecID") != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы следите");
-	if(!(0 <= dmid < GetGVarInt("D_Count")) || !DM[dmid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}DM зоны №%d не существует",dmid + 1);
+	if(!(0 <= dmid < GetGVarInt("D_Count")) || !DM[dmid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}DM зоны №%i не существует",dmid + 1);
 	if(IsPlayerInAnyVehicle(playerid)) SetPlayerPos(playerid,0.0,0.0,10.0);
 	SetPVarInt(playerid,"DM_Zone",dmid);
-	SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на DM {FFFF00}№%d",Player[playerid][Name],dmid + 1);
+	SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}зашел на DM {FFFF00}№%i",Player[playerid][Name],dmid + 1);
 	SendClientMessage(playerid,-1,"[Инфо]: {FFFF00}/leave {AFAFAF}- выйти из DM");
 	return SpawnPlayer(playerid);
 }
@@ -10553,7 +11010,7 @@ CMD:sarena(playerid,params[])
 {
 	if(GetPVarInt(playerid,"Admin") < 2) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}У Вас нет доступа к этой комманде");
 	if(Server[Current] != -1 || GetGVarInt("Starting") || GetGVarInt("Busy")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арена уже запущена, запускается, или не прошло 5 секунд после конца игры");
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sarena [0-%d | random]",GetGVarInt("A_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sarena [0-%i | random]",GetGVarInt("A_Count") - 1);
 	if(!strcmp(params,"r",true) || !strcmp(params,"rand",true) || !strcmp(params,"random",true))
 	{
 	    new
@@ -10565,16 +11022,16 @@ CMD:sarena(playerid,params[])
 		if(!Arena[arenaid][Exists]) goto Randomise;
 	    if(GetGVarInt("Voting")) StopVote();
 	    CallLocalFunction("StartMode","dd",arenaid,Gametype_Arena);
-	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайную арену {FFFF00}(%d)",Player[playerid][Name],arenaid);
-	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайную арену {FFFF00}(%d)",Player[playerid][Name],arenaid);
+	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайную арену {FFFF00}(%i)",Player[playerid][Name],arenaid);
+	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайную арену {FFFF00}(%i)",Player[playerid][Name],arenaid);
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sarena [0-%d | random]",GetGVarInt("A_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sarena [0-%i | random]",GetGVarInt("A_Count") - 1);
 	new arenaid = strval(params);
-	if(!(0 <= arenaid < GetGVarInt("A_Count")) || !Arena[arenaid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арены №%d не существует",arenaid);
+	if(!(0 <= arenaid < GetGVarInt("A_Count")) || !Arena[arenaid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арены №%i не существует",arenaid);
 	if(GetGVarInt("Voting")) StopVote();
 	CallLocalFunction("StartMode","dd",arenaid,Gametype_Arena);
-	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает арену {FFFF00}№%d",Player[playerid][Name],arenaid);
-	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает арену {FFFF00}№%d",Player[playerid][Name],arenaid);
+	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает арену {FFFF00}№%i",Player[playerid][Name],arenaid);
+	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает арену {FFFF00}№%i",Player[playerid][Name],arenaid);
 }
 
 CMD:basestart(playerid,params[])
@@ -10593,7 +11050,7 @@ CMD:sbase(playerid,params[])
 {
 	if(GetPVarInt(playerid,"Admin") < 2) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}У Вас нет доступа к этой комманде");
 	if(Server[Current] != -1 || GetGVarInt("Starting") || GetGVarInt("Busy")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}База уже запущена, запускается, или не прошло 5 секунд после конца игры");
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sbase [0-%d | random]",GetGVarInt("B_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sbase [0-%i | random]",GetGVarInt("B_Count") - 1);
 	if(!strcmp(params,"r",true) || !strcmp(params,"rand",true) || !strcmp(params,"random",true))
 	{
 	    new
@@ -10605,16 +11062,16 @@ CMD:sbase(playerid,params[])
 	    if(!Base[baseid][Exists]) goto Randomise;
 	    if(GetGVarInt("Voting")) StopVote();
 	    CallLocalFunction("StartMode","dd",baseid,Gametype_Base);
-	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайную базу {FFFF00}(%d)",Player[playerid][Name],baseid);
-	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайную базу {FFFF00}(%d)",Player[playerid][Name],baseid);
+	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайную базу {FFFF00}(%i)",Player[playerid][Name],baseid);
+	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайную базу {FFFF00}(%i)",Player[playerid][Name],baseid);
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sbase [0-%d | random]",GetGVarInt("B_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sbase [0-%i | random]",GetGVarInt("B_Count") - 1);
 	new baseid = strval(params);
-	if(!(0 <= baseid < GetGVarInt("B_Count")) || !Base[baseid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Базы №%d не существует",baseid);
+	if(!(0 <= baseid < GetGVarInt("B_Count")) || !Base[baseid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Базы №%i не существует",baseid);
 	if(GetGVarInt("Voting")) StopVote();
 	CallLocalFunction("StartMode","dd",baseid,Gametype_Base);
-	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает базу {FFFF00}№%d",Player[playerid][Name],baseid);
-	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает базу {FFFF00}№%d",Player[playerid][Name],baseid);
+	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает базу {FFFF00}№%i",Player[playerid][Name],baseid);
+	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает базу {FFFF00}№%i",Player[playerid][Name],baseid);
 }
 
 CMD:ctfstart(playerid,params[])
@@ -10633,7 +11090,7 @@ CMD:sctf(playerid,params[])
 {
 	if(GetPVarInt(playerid,"Admin") < 2) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}У Вас нет доступа к этой комманде");
 	if(Server[Current] != -1 || GetGVarInt("Starting") || GetGVarInt("Busy")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Арена уже запущена, запускается, или не прошло 5 секунд после конца игры");
-	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sctf [0-%d | random]",GetGVarInt("C_Count") - 1);
+	if(isnull(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sctf [0-%i | random]",GetGVarInt("C_Count") - 1);
 	if(!strcmp(params,"r",true) || !strcmp(params,"rand",true) || !strcmp(params,"random",true))
 	{
 	    new
@@ -10645,16 +11102,16 @@ CMD:sctf(playerid,params[])
 	    if(!CTF[ctfid][Exists]) goto Randomise;
 	    if(GetGVarInt("Voting")) StopVote();
 	    CallLocalFunction("StartMode","dd",ctfid,Gametype_CTF);
-	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайный CTF {FFFF00}(%d)",Player[playerid][Name],ctfid);
-	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайный CTF {FFFF00}(%d)",Player[playerid][Name],ctfid);
+	    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает случайный CTF {FFFF00}(%i)",Player[playerid][Name],ctfid);
+	    else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает случайный CTF {FFFF00}(%i)",Player[playerid][Name],ctfid);
 	}
-	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sctf [0-%d | random]",GetGVarInt("C_Count") - 1);
+	if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/sctf [0-%i | random]",GetGVarInt("C_Count") - 1);
 	new ctfid = strval(params);
-	if(!(0 <= ctfid < GetGVarInt("C_Count")) || !CTF[ctfid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}CTF №%d не существует",ctfid);
+	if(!(0 <= ctfid < GetGVarInt("C_Count")) || !CTF[ctfid][Exists]) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}CTF №%i не существует",ctfid);
 	if(GetGVarInt("Voting")) StopVote();
 	CallLocalFunction("StartMode","dd",ctfid,Gametype_CTF);
-	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает CTF {FFFF00}№%d",Player[playerid][Name],ctfid);
-	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает CTF {FFFF00}№%d",Player[playerid][Name],ctfid);
+	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}запускает CTF {FFFF00}№%i",Player[playerid][Name],ctfid);
+	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}запускает CTF {FFFF00}№%i",Player[playerid][Name],ctfid);
 }
 
 CMD:switch(playerid,params[])
@@ -10752,7 +11209,7 @@ CMD:aswap(playerid,params[])
 	
 	if(Server[Current] != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Это можно сделать только вне раунда");
 	if(GetGVarInt("Busy")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}С конца раунда не прошло 5 секунд, подождите");
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	if(!GetPVarInt(id,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не заспавнен");
 	if(GetPVarInt(id,"Playing") || GetPVarInt(id,"DM_Zone") != -1 || GetPVarInt(id,"DuelID") != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок должен находиться на лобби");
 	switch(GetPVarInt(id,"Team"))
@@ -10822,7 +11279,7 @@ CMD:balance(playerid,params[])
 		type = strval(params);
 	}
 	if(!strcmp(params,"r",true) || !strcmp(params,"rand",true) || !strcmp(params,"random",true)) type = BalanceType_Random;
-	if(!(0 <= type <= 2)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный тип автобаланса (%d) {FFFF00}[0-2]",type);
+	if(!(0 <= type <= 2)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный тип автобаланса (%i) {FFFF00}[0-2]",type);
     CallLocalFunction("Balance","d",type);
 	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}сбалансировал комманды",Player[playerid][Name]);
 	else return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}сбалансировал комманды",Player[playerid][Name]);
@@ -10872,7 +11329,7 @@ CMD:balancetype(playerid,params[])
 	{
 	    if(!IsNumeric(params)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/balancetype [0,1 | random]");
 	    type = strval(params);
-	    if(type != 0 && type != 1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный тип автобаланса (%d)",type);
+	    if(type != 0 && type != 1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Неверный тип автобаланса (%i)",type);
 	}
  	switch(++type)
  	{
@@ -11136,7 +11593,7 @@ CMD:setname(playerid,params[])
     ;
     
 	if(sscanf(params,"ds[24]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/setname [id] [имя]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите новое имя");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Длина имени превышает допустимую");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете сменить имя себе");
@@ -11175,7 +11632,7 @@ CMD:votekick(playerid,params[])
 	    if(playerid == GetGVarInt("VoteKick_ID") && id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Ты идиот?");
 		GiveGVarInt("VoteKick_Votes",1,0);
 		SetGVarInt("VoteKick_Voted",1,playerid);
-	    return SendClientMessageToAll(-1,"[Инфо]: {00FF40}Игрок {FF0000}%s {00FF40}добавил свой голос за кик игрока %s {FFFF00}(%d/%d)",Player[playerid][Name],Player[GetGVarInt("VoteKick_ID")][Name],GetGVarInt("VoteKick_Votes"),floatround(GetOnlinePlayers() / 1.5));
+	    return SendClientMessageToAll(-1,"[Инфо]: {00FF40}Игрок {FF0000}%s {00FF40}добавил свой голос за кик игрока %s {FFFF00}(%i/%i)",Player[playerid][Name],Player[GetGVarInt("VoteKick_ID")][Name],GetGVarInt("VoteKick_Votes"),floatround(GetOnlinePlayers() / 1.5));
 	}
 	else
 	{
@@ -11189,7 +11646,7 @@ CMD:votekick(playerid,params[])
 	    if(strlen(str_param) > 10) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина");
 		if(GetOnlinePlayers() <= 3) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Для старта голосования мало игроков");
 		if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете начать голосование против себя");
-	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	    if(!GetPVarInt(id,"Logged")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Дождитесь полного подключения игрока");
 	    if(IsPlayerAdmin(id) || GetPVarInt(id,"Moderator")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете проголосовать за кик администратора");
 	    if(GetGVarInt("VoteBan_Active") && GetGVarInt("VoteBan_ID") == id) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}За этого игрока уже идет вотебан-голосование");
@@ -11228,7 +11685,7 @@ CMD:voteban(playerid,params[])
 	    if(playerid == GetGVarInt("VoteBan_ID") && id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Ты идиот?");
 		GiveGVarInt("VoteBan_Votes",1,0);
 		SetGVarInt("VoteBan_Voted",1,playerid);
-	    return SendClientMessageToAll(-1,"[Инфо]: {00FF40}Игрок {FF0000}%s {00FF40}добавил свой голос за бан игрока %s {FFFF00}(%d/%d)",Player[playerid][Name],Player[GetGVarInt("VoteBan_ID")][Name],GetGVarInt("VoteBan_Votes"),GetOnlinePlayers() - 1);
+	    return SendClientMessageToAll(-1,"[Инфо]: {00FF40}Игрок {FF0000}%s {00FF40}добавил свой голос за бан игрока %s {FFFF00}(%i/%i)",Player[playerid][Name],Player[GetGVarInt("VoteBan_ID")][Name],GetGVarInt("VoteBan_Votes"),GetOnlinePlayers() - 1);
 	}
 	else
 	{
@@ -11242,7 +11699,7 @@ CMD:voteban(playerid,params[])
 	    if(strlen(str_param) > 10) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина");
         if(GetOnlinePlayers() < 5) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Для старта голосования мало игроков");
 		if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете начать голосование против себя");
-	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 		if(!GetPVarInt(id,"Logged")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Дождитесь полного подключения игрока");
 	    if(IsPlayerAdmin(id) || GetPVarInt(id,"Moderator")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете проголосовать за бан администратора");
 	    if(GetGVarInt("VoteKick_Active") && GetGVarInt("VoteKick_ID") == id) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}За этого игрока уже идет вотекик-голосование");
@@ -11277,7 +11734,7 @@ CMD:remove(playerid,params[])
 		id = strval(params)
 	;
 	
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(!GetPVarInt(id,"Playing")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не в раунде");
     RemoveFromRound(id);
 	if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}дисквалифицировал игрока {FF0000}%s {AFAFAF}из раунда",Player[playerid][Name],Player[id][Name]);
@@ -11300,7 +11757,7 @@ CMD:add(playerid,params[])
 		id = strval(params)
 	;
 	
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(GetPVarInt(id,"Playing")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок уже в раунде");
 	if(GetPVarInt(id,"No_Play")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Данный игрок отключил игру на раундах");
 	if(GetPVarInt(id,"AFK_In")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Этот игрок находится в режиме AFK");
@@ -11326,7 +11783,7 @@ CMD:akill(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/akill [id] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину убийства");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина убийства");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Лентяй, введи {FFFF00}/kill {AFAFAF}!");
@@ -11353,21 +11810,20 @@ CMD:kill(playerid,params[])
 	if(IsPlayerInAnyVehicle(playerid)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Сначала выйди из транспорта");
 	if(!GetPVarInt(playerid,"Spawned")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не заспавнены");
 	if(GetPVarInt(playerid,"SpecID") != -1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете убить себя во время слежки");
-
-	new
-	    string_data[32]
-	;
 	
-	SetPVarInt(playerid, "Killed", 1);
-	format(string_data, 32, "~r~~h~-%.0f~n~~r~Health: 0", ReturnPlayerHealth(playerid));
+	SetPVarInt(playerid, "Killed", true);
 	SetPlayerHealth(playerid, 0.0);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthMinus],string_data);
-	PlayerTextDrawShow(playerid,Player[playerid][HealthMinus]);
-	PlayerTextDrawSetString(playerid,Player[playerid][HealthBar],"HP: 0");
-	PlayerTextDrawShow(playerid,Player[playerid][HealthBar]);
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthMinus], "~r~~h~-%.0f~n~~r~Health: 0", ReturnPlayerHealth(playerid));
+	PlayerTextDrawShow(playerid, Player[playerid][HealthMinus]);
+	
+	PlayerTextDrawSetString(playerid, Player[playerid][HealthBar], "HP: 0");
+	PlayerTextDrawShow(playerid, Player[playerid][HealthBar]);
+	
 	TextDrawShowForPlayer(playerid,Server[Barrier][5]);
 	TextDrawShowForPlayer(playerid,Server[Barrier][6]);
-	SetTimerEx("ClearMinusHealth",2500,false,"i",playerid);
+	
+	SetTimerEx("ClearMinusHealth", 2500, false, "i", playerid);
+	
 	HideDialog(playerid);
 	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Игрок {FF0000}%s {AFAFAF}ввел комманду {FFFF00}/kill",Player[playerid][Name]);
 }
@@ -11389,7 +11845,7 @@ CMD:injure(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/slap [id] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину пинка");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина пинка");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете пнуть себя");
@@ -11422,7 +11878,7 @@ CMD:burn(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/burn [id] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину поджега");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина поджега");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете поджечь себя");
@@ -11451,7 +11907,7 @@ CMD:explode(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/explode [id] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину взрыва");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина взрыва");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете взорвать себя");
@@ -11480,15 +11936,15 @@ CMD:mute(playerid,params[])
  	;
  	
 	if(sscanf(params,"dds[22]",id,time,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/mute [id] [минут] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину затычки");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина затычки");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете заткнуть себя");
     if(IsPlayerAdmin(id)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете заткнуть администратора");
     GivePVarInt(id,"Mute_Time",(time * 60));
 	SetPVarInt(id,"Muted",1);
-    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}заткнул игрока {FF0000}%s {AFAFAF} на %d минут {FFFF00}(Причина: %s)",Player[playerid][Name],Player[id][Name],time,str_param);
-    return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}заткнул игрока {FF0000}%s {AFAFAF} на %d минут {FFFF00}(Причина: %s)",Player[playerid][Name],Player[id][Name],time,str_param);
+    if(GetPVarInt(playerid,"Admin") > 3) return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}заткнул игрока {FF0000}%s {AFAFAF} на %i минут {FFFF00}(Причина: %s)",Player[playerid][Name],Player[id][Name],time,str_param);
+    return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Модератор {FF0000}%s {AFAFAF}заткнул игрока {FF0000}%s {AFAFAF} на %i минут {FFFF00}(Причина: %s)",Player[playerid][Name],Player[id][Name],time,str_param);
 }
 
 CMD:unmute(playerid,params[])
@@ -11500,7 +11956,7 @@ CMD:unmute(playerid,params[])
 		id = strval(params)
 	;
 	
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(!GetPVarInt(id,"Muted")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрок не заткнут");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете разоткнуть себя");
     SetPVarInt(id,"Mute_Time",0);
@@ -11576,7 +12032,7 @@ CMD:goto(playerid,params[])
 
 	new id = strval(params);
 	
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете телепортироваться к себе");
 
 	new Float:data[3];
@@ -11651,7 +12107,7 @@ CMD:get(playerid,params[])
 		id = strval(params)
 	;
 	
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете телепортировать себя");
     if(GetPVarInt(id,"AFK_In")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Этот игрок находится в режиме AFK");
 
@@ -11715,9 +12171,9 @@ CMD:maxping(playerid,params[])
 		ping = strval(params)
 	;
 	
-	if(ping < 30) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком маленькое значение макс. пинга (%d)",ping);
+	if(ping < 30) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком маленькое значение макс. пинга (%i)",ping);
 	SetGVarInt("MaxPing",ping);
-	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}установил максимальный пинг на {FFFF00}'%d'",Player[playerid][Name],GetGVarInt("MaxPing"));
+	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}установил максимальный пинг на {FFFF00}'%i'",Player[playerid][Name],GetGVarInt("MaxPing"));
 }
 
 CMD:maxpingwarn(playerid,params[])
@@ -11730,9 +12186,9 @@ CMD:maxpingwarn(playerid,params[])
 		ping = strval(params)
 	;
 	
-	if(ping < 1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком маленькое значение предупреждений (%d)",ping);
+	if(ping < 1) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком маленькое значение предупреждений (%i)",ping);
 	SetGVarInt("MaxPingExceeds",ping);
-	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}установил количество предупреждений за высокий пинг на {FFFF00}'%d'",Player[playerid][Name],GetGVarInt("MaxPingExceeds"));
+	return SendClientMessageToAll(-1,"[Инфо]: {AFAFAF}Администратор {FF0000}%s {AFAFAF}установил количество предупреждений за высокий пинг на {FFFF00}'%i'",Player[playerid][Name],GetGVarInt("MaxPingExceeds"));
 }
 
 CMD:pm(playerid,params[])
@@ -11745,7 +12201,7 @@ CMD:pm(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[102]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/pm [id] [текст]");
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
 	if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете отправить PM себе");
 	if(isnull(str_param) || emptyMessage(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите текст сообщения для отправки");
 	if(strlen(str_param) > 100) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинное сообщение, отправка невозможна");
@@ -11823,7 +12279,7 @@ CMD:kick(playerid,params[])
  	;
  	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/kick [id] [причина]");
-    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+    if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину кика");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина кика");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете кикнуть себя");
@@ -11851,7 +12307,7 @@ CMD:ban(playerid,params[])
 	;
 	
 	if(sscanf(params,"ds[22]",id,str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Использование: {FF0000}/ban [id] [причина]");
-	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%d) нет на сервере",id);
+	if(!GetPVarInt(id,"Connected")) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Игрока (%i) нет на сервере",id);
     if(isnull(str_param)) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Введите причину бана");
     if(strlen(str_param) > 20) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Слишком длинная причина бана");
     if(id == playerid) return SendClientMessage(playerid,-1,"[Ошибка]: {AFAFAF}Вы не можете забанить себя");
@@ -11969,6 +12425,6 @@ CMD:leave(playerid,params[])
 	}
 	Skip2:
 	return SendClientMessage(playerid,-1,"[Инфо]: {AFAFAF}Вы вышли из DM");
-}
+}*/
 
 #endscript
